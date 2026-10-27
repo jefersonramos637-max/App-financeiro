@@ -1234,7 +1234,7 @@
 
   const offerPct = (o) => (o.remaining > o.value ? Math.round(((o.remaining - o.value) / o.remaining) * 100) : 0);
   const offerValid = (o) => !o.until || o.until >= todayISO();
-  const bestOffer = (d) => (leftOf(d) > 0 ? d.offers.filter(offerValid).sort((a, b) => offerPct(b) - offerPct(a))[0] : null);
+  const bestOffer = (d) => (leftOf(d) > 0 ? (d.offers || []).filter(offerValid).sort((a, b) => offerPct(b) - offerPct(a))[0] : null);
   function offerGrade(pct) {
     if (pct >= 50) return { cls: 'good', label: '🔥 Ótima proposta' };
     if (pct >= 30) return { cls: 'good', label: '👍 Boa proposta' };
@@ -1243,7 +1243,7 @@
   }
 
   function offersBlock(d) {
-    if (!d.offers.length || leftOf(d) <= 0) return '';
+    if (!d.offers || !d.offers.length || leftOf(d) <= 0) return '';
     const best = bestOffer(d);
     return `<div class="offers"><p class="offers-title">💬 Propostas de quitação</p>${d.offers.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).map((o) => {
       const pct = offerPct(o);
@@ -1921,6 +1921,7 @@
         return;
       }
       const until = $('#offerUntil', root).value;
+      if (!d.offers) d.offers = [];
       d.offers.push({ id: uid(), value, remaining, date: todayISO(), until: isISO(until) ? until : '', note: $('#offerNote', root).value.trim() });
       save();
       closeSheet();
@@ -2825,8 +2826,8 @@
     // Próximo vencimento a partir de hoje para o dia informado.
     const nextOn = (day) => dueIn(Number(today.slice(8, 10)) > day ? shiftMonth(cur, 1) : cur, day);
     s.debts = [
-      { id: uid(), name: 'Empréstimo pessoal', icon: '🏦', amount: 38990, total: 12, paid: 4, dueDay: 15, nextDue: nextOn(15), linked: true, createdAt: Date.now() },
-      { id: uid(), name: 'Celular parcelado', icon: '💳', amount: 15990, total: 10, paid: 7, dueDay: 28, nextDue: nextOn(28), linked: true, createdAt: Date.now() },
+      { id: uid(), name: 'Empréstimo pessoal', icon: '🏦', amount: 38990, total: 12, paid: 4, advanced: 0, rate: 3.5, offers: [], dueDay: 15, nextDue: nextOn(15), linked: true, createdAt: Date.now() },
+      { id: uid(), name: 'Celular parcelado', icon: '💳', amount: 15990, total: 10, paid: 7, advanced: 0, rate: null, offers: [], dueDay: 28, nextDue: nextOn(28), linked: true, createdAt: Date.now() },
     ];
     state = s;
     s.debts.forEach(syncDebtTx);
@@ -2917,6 +2918,7 @@
     } else if (['edit-debt', 'pay-debt', 'advance-debt', 'new-offer', 'accept-offer', 'del-offer'].includes(action)) {
       const debt = state.debts.find((d) => d.id === el.dataset.id);
       if (!debt) return;
+      if (!debt.offers) debt.offers = [];
       const offer = debt.offers.find((o) => o.id === el.dataset.offer);
       if (action === 'pay-debt') payDebt(debt);
       else if (action === 'edit-debt') openDebtSheet(debt);

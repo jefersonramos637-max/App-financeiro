@@ -1,7 +1,7 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.6.0';
+const VERSION = '1.6.1';
 const NOTES = [
   'Plano para quitar: o app escolhe por qual dívida começar e mostra quando você fica livre de todas',
   'Propostas de quitação: registre a oferta do banco e veja o desconto e se vale a pena',
