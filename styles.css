@@ -62,7 +62,8 @@
 }
 
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; overscroll-behavior-y: none; }
+/* Sem zoom: pan-x/pan-y bloqueia o gesto de pinça e o toque duplo. */
+html { -webkit-text-size-adjust: 100%; overscroll-behavior-y: none; touch-action: pan-x pan-y; }
 body {
   margin: 0;
   background: var(--bg);

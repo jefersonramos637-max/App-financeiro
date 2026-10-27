@@ -3744,6 +3744,9 @@
     }
   });
 
+  // O Safari do iPhone ignora user-scalable=no em alguns casos; bloqueia a pinça direto.
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach((ev) => document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
+
   document.addEventListener('pointerover', (e) => {
     const col = e.target.closest('.trend-col');
     if (col && e.pointerType === 'mouse') selectTrend(col.dataset.month);
