@@ -3728,7 +3728,8 @@
             : '<button class="btn" type="button" id="faceOn">🙂 Desbloquear com Face ID</button>') : ''}
           <button class="btn" type="button" id="changePin">Trocar PIN</button>
           <button class="btn" type="button" id="removePin">Remover PIN</button>` : `
-          <button class="btn primary" type="button" id="createPin">🔒 Proteger com PIN</button>
+          ${faceAvailable() ? '<button class="btn primary" type="button" id="faceCreateBtn">🙂 Proteger com Face ID (sem PIN)</button>' : ''}
+          <button class="btn${faceAvailable() ? '' : ' primary'}" type="button" id="createPin">🔒 Proteger com PIN</button>
           <p class="hint">O app passa a pedir um PIN ao abrir e os dados ficam criptografados no aparelho.</p>`}
         <label class="check"><input type="checkbox" id="hideValues"${state.settings.hideValues ? ' checked' : ''}>
           <span>Esconder valores na tela (bom para usar em público)</span></label>
@@ -3814,6 +3815,7 @@
     });
     on('seeNews', () => showWhatsNew(currentInfo, false));
     on('createPin', () => openPinSheet('create'));
+    on('faceCreateBtn', () => openFaceCreateSheet());
     on('changePin', () => openPinSheet('change'));
     on('faceOn', () => openFaceSheet());
     on('faceOff', () => { faceDisable(); toast('Face ID desativado'); openSettings(); });
@@ -3979,6 +3981,61 @@
     });
   }
 
+  // Troca a proteção atual (PIN ou nenhuma) por um código aleatório guardado pelo Face ID.
+  // Devolve o código, ou null se não deu certo (aí tudo volta como estava).
+  async function switchToFaceOnly(keptMsg) {
+    const [oldKey, oldSalt, oldLen] = [cryptoKey, cryptoSalt, pinLength];
+    const code = Array.from(crypto.getRandomValues(new Uint8Array(8)), (n) => n % 10).join('');
+    let newKey = null;
+    let reencoded = false;
+    try {
+      faceDisable();
+      cryptoSalt = crypto.getRandomValues(new Uint8Array(16));
+      newKey = await deriveKey(code, cryptoSalt);
+      cryptoKey = newKey;
+      pinLength = 8;
+      await save();
+      await reencodeSnapshots(oldKey, newKey, cryptoSalt, pinLength);
+      reencoded = true;
+      await faceEnable(code, true);
+      return code;
+    } catch (err) {
+      cryptoKey = oldKey; cryptoSalt = oldSalt; pinLength = oldLen;
+      await save();
+      if (reencoded) await reencodeSnapshots(newKey, oldKey, oldSalt, oldLen).catch(() => {});
+      faceDisable();
+      const m = String(err && err.message);
+      toast(`${m === 'noprf' || m === 'prf' ? 'Este iPhone ainda não permite Face ID neste app.'
+        : err && err.name === 'NotAllowedError' ? 'Face ID cancelado.' : 'Não consegui ligar o Face ID.'} ${keptMsg}`);
+      return null;
+    }
+  }
+
+  function showRecoveryCode(slot, code) {
+    slot.innerHTML = `<div class="debt-preview"><p><strong>Pronto! Agora o app abre com o Face ID, sozinho.</strong></p>
+      <p>Seu <strong>código de recuperação</strong> é:</p>
+      <p class="num" style="font-size:1.8rem;letter-spacing:.2em;font-weight:800">${code}</p>
+      <p>Anote em um lugar seguro, fora do app. Se trocar de iPhone ou o Face ID do app parar, só ele abre os seus dados (e os backups).</p></div>
+      <button class="btn primary block" type="button" id="faceDone" style="margin-top:10px">Anotei, fechar</button>`;
+    $('#faceDone', slot).addEventListener('click', () => { closeSheet(); render(); openSettings(); });
+  }
+
+  // Sem PIN: liga o Face ID direto.
+  function openFaceCreateSheet() {
+    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">Proteger com Face ID</h2>
+      <div id="faceSlot"><p class="hint">O app vai pedir o Face ID sempre que abrir, sozinho, sem PIN. Seus dados ficam criptografados no aparelho.</p>
+        <p class="hint">Você recebe um código de recuperação de 8 números para anotar (só para emergências).</p>
+        <button class="btn primary block" type="button" id="faceCreate">🙂 Ligar Face ID</button></div>`);
+    $('#faceCreate', root).addEventListener('click', async () => {
+      const btn = $('#faceCreate', root);
+      btn.disabled = true;
+      btn.textContent = 'Aguarde…';
+      const code = await switchToFaceOnly('Nada foi alterado.');
+      if (!code) { btn.disabled = false; btn.textContent = '🙂 Ligar Face ID'; return; }
+      showRecoveryCode($('#faceSlot', root), code);
+    });
+  }
+
   // Pede o PIN uma vez e liga o Face ID.
   function openFaceSheet() {
     const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">Desbloquear com Face ID</h2>
@@ -3992,49 +4049,18 @@
       <div id="faceSlot"></div>`);
     $('#faceOnly', root).addEventListener('click', async () => {
       const btn = $('#faceOnly', root);
-      const pin = $('#facePin', root).value;
       btn.disabled = true;
-      const env = storedEnvelope();
-      const [oldKey, oldSalt, oldLen] = [cryptoKey, cryptoSalt, pinLength];
       try {
-        await openEnvelope(env, pin);
+        await openEnvelope(storedEnvelope(), $('#facePin', root).value);
       } catch {
         toast('PIN incorreto.');
         btn.disabled = false;
         return;
       }
-      // Troca o PIN por um código aleatório; quem abre no dia a dia é o Face ID.
-      const code = Array.from(crypto.getRandomValues(new Uint8Array(8)), (n) => n % 10).join('');
-      let newKey = null;
-      let reencoded = false;
-      try {
-        cryptoSalt = crypto.getRandomValues(new Uint8Array(16));
-        newKey = await deriveKey(code, cryptoSalt);
-        cryptoKey = newKey;
-        pinLength = 8;
-        await save();
-        await reencodeSnapshots(oldKey, newKey, cryptoSalt, pinLength);
-        reencoded = true;
-        await faceEnable(code, true);
-      } catch (err) {
-        // Não deu certo: volta para o PIN de antes.
-        cryptoKey = oldKey; cryptoSalt = oldSalt; pinLength = oldLen;
-        await save();
-        if (reencoded) await reencodeSnapshots(newKey, oldKey, oldSalt, oldLen).catch(() => {});
-        faceDisable();
-        const m = String(err && err.message);
-        toast(m === 'noprf' || m === 'prf' ? 'Este iPhone ainda não permite Face ID neste app. Seu PIN continua o mesmo.'
-          : err && err.name === 'NotAllowedError' ? 'Face ID cancelado. Seu PIN continua o mesmo.' : 'Não consegui trocar. Seu PIN continua o mesmo.');
-        btn.disabled = false;
-        return;
-      }
+      const code = await switchToFaceOnly('Seu PIN continua o mesmo.');
+      if (!code) { btn.disabled = false; return; }
       $('#faceForm', root).hidden = true;
-      $('#faceSlot', root).innerHTML = `<div class="debt-preview"><p><strong>Pronto! O Face ID agora abre o app.</strong></p>
-        <p>Seu <strong>código de recuperação</strong> é:</p>
-        <p class="num" style="font-size:1.8rem;letter-spacing:.2em;font-weight:800">${code}</p>
-        <p>Anote em um lugar seguro. Se trocar de iPhone ou perder o Face ID do app, só ele abre os seus dados (e os backups).</p></div>
-        <button class="btn primary block" type="button" id="faceDone" style="margin-top:10px">Anotei, fechar</button>`;
-      $('#faceDone', root).addEventListener('click', () => { closeSheet(); openSettings(); });
+      showRecoveryCode($('#faceSlot', root), code);
     });
     $('#faceForm', root).addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -4317,10 +4343,11 @@
       el.setAttribute('aria-label', 'App bloqueado');
       document.body.appendChild(el);
     }
-    el.innerHTML = `<div class="lock-inner">
+    const faceOnly = faceAvailable() && !!faceStored() && faceStored().only;
+    el.innerHTML = `<div class="lock-inner${faceOnly ? ' face-only' : ''}">
       <div class="lock-icon" aria-hidden="true">🔒</div>
       <h1 class="lock-title">Meu Bolso</h1>
-      <p class="lock-msg" id="lockMsg" aria-live="polite">${faceStored() && faceStored().only ? 'Use o Face ID ou digite o código de recuperação' : 'Digite seu PIN'}</p>
+      <p class="lock-msg" id="lockMsg" aria-live="polite">${faceOnly ? 'Abrindo com o Face ID…' : 'Digite seu PIN'}</p>
       <div class="pin-dots" id="pinDots" aria-hidden="true"></div>
       <div class="keypad">
         ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<button type="button" data-key="${n}">${n}</button>`).join('')}
@@ -4329,7 +4356,8 @@
         <button type="button" data-key="back" aria-label="Apagar">⌫</button>
       </div>
       ${faceAvailable() && faceStored() ? '<button class="btn primary" type="button" id="faceBtn">🙂 Entrar com Face ID</button>' : ''}
-      <button class="link-btn" type="button" id="forgotPin">Esqueci meu PIN</button>
+      ${faceOnly ? '<button class="link-btn" type="button" id="useCode">Usar código de recuperação</button>' : ''}
+      <button class="link-btn" type="button" id="forgotPin">${faceOnly ? 'Perdi o código' : 'Esqueci meu PIN'}</button>
       <div id="forgotSlot"></div>
     </div>`;
     el.hidden = false;
@@ -4361,7 +4389,10 @@
       try {
         opened(await faceUnlock(env));
       } catch (err) {
-        if (!auto) msg.textContent = err && err.message === 'stale' ? 'O Face ID precisa ser ligado de novo. Use o PIN.' : 'Não deu certo. Tente de novo ou use o PIN.';
+        if (err && err.message === 'stale') {
+          msg.textContent = 'O Face ID precisa ser ligado de novo. Use o código.';
+          $('.lock-inner', el).classList.remove('face-only');
+        } else msg.textContent = faceOnly ? 'Toque na tela para abrir com o Face ID' : auto ? 'Digite seu PIN' : 'Não deu certo. Tente de novo ou use o PIN.';
         const fb = $('#faceBtn', el);
         if (fb && err && err.message === 'stale') fb.remove();
       } finally {
@@ -4426,6 +4457,16 @@
     if (faceBtn) {
       faceBtn.addEventListener('click', () => tryFace(false));
       tryFace(true);
+    }
+    if (faceOnly) {
+      // Qualquer toque na tela chama o Face ID (o iPhone às vezes só deixa abrir depois de um toque).
+      el.addEventListener('click', (e) => {
+        if (!e.target.closest('button') && $('.lock-inner', el).classList.contains('face-only')) tryFace(false);
+      });
+      $('#useCode', el).addEventListener('click', () => {
+        $('.lock-inner', el).classList.remove('face-only');
+        msg.textContent = 'Digite o código de recuperação';
+      });
     }
     $('.keypad', el).addEventListener('click', (e) => {
       const b = e.target.closest('button');

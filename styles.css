@@ -1572,3 +1572,7 @@ svg { display: block; }
   .sheet, .view.slide-next, .view.slide-prev, .pin-dots.shake { animation: none; }
   .sheet { transition: none; }
 }
+
+/* Tela de bloqueio só com Face ID */
+.lock-inner.face-only .keypad, .lock-inner.face-only .pin-dots, .lock-inner.face-only #forgotPin { display: none; }
+.lock-inner:not(.face-only) #useCode { display: none; }
