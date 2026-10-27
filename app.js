@@ -952,7 +952,7 @@
   }
 
   function viewHome() {
-    if (!state.transactions.length && !state.goals.length && !state.debts.length && !state.salary) return welcome();
+    if (!state.transactions.length && !state.goals.length && !state.debts.length && !state.salary && !state.cards.length) return welcome();
     const list = txOfMonth(ui.month);
     const { inc, exp, bal } = totals(list);
     return [
@@ -2949,7 +2949,7 @@
   }
 
   function openSettings() {
-    const empty = !state.transactions.length && !state.goals.length && !state.debts.length && !state.salary;
+    const empty = !state.transactions.length && !state.goals.length && !state.debts.length && !state.salary && !state.cards.length;
     const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
     const lockOpt = (v, label) => `<option value="${v}"${state.settings.lockAfter === v ? ' selected' : ''}>${label}</option>`;
     const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">Configurações</h2>

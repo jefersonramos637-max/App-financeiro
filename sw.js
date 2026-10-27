@@ -1,8 +1,9 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.9.0';
+const VERSION = '1.9.1';
 const NOTES = [
+  'Correção: o cartão de crédito agora aparece na tela inicial mesmo sem outros lançamentos',
   'Lembrete de backup todo dia: 2 toques e o iCloud guarda na nuvem sozinho',
   'Mostra quando foi o último backup (ex.: “hoje às 09:00 ✓”)',
   'Ao cadastrar o cartão, informe a fatura que já está aberta',
