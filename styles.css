@@ -953,6 +953,55 @@ svg { display: block; }
 #rateChips { margin-top: 6px; }
 #rateChips .chip { font-size: 0.8rem; }
 
+/* Ícones vetoriais */
+.ic {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  flex: none;
+  vertical-align: -0.2em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tx-icon { background: var(--accent-soft); color: var(--accent); }
+.tx-icon .ic { width: 22px; height: 22px; vertical-align: 0; }
+.budget-row .tx-icon .ic, .tx-icon.small .ic { width: 20px; height: 20px; }
+.tip-icon { color: var(--accent); }
+.tip-icon .ic { width: 20px; height: 20px; vertical-align: 0; }
+.empty-icon { color: var(--accent); display: flex; justify-content: center; }
+.empty-icon .ic { width: 44px; height: 44px; stroke-width: 1.5; }
+.cat-btn .ic { width: 24px; height: 24px; color: var(--accent); vertical-align: 0; }
+.cat-btn.active .ic { color: var(--accent); }
+.update-icon { color: var(--accent); }
+.update-icon .ic { width: 24px; height: 24px; vertical-align: 0; }
+.whatsnew-badge { color: var(--accent); }
+.whatsnew-badge .ic { width: 52px; height: 52px; stroke-width: 1.5; vertical-align: 0; }
+.lock-icon .ic { width: 30px; height: 30px; color: var(--accent-ink); vertical-align: 0; }
+.hero .ic, .plan-first .ic { vertical-align: -0.18em; }
+.btn .ic, .link-btn .ic, .chip .ic { width: 1.1em; height: 1.1em; vertical-align: -0.18em; margin-right: 2px; }
+.badge .ic { width: 0.95em; height: 0.95em; vertical-align: -0.12em; }
+.sheet-title .ic, .card-title .ic, .guide-title .ic, .offers-title .ic { width: 1.1em; height: 1.1em; color: var(--accent); vertical-align: -0.16em; }
+.toast .ic { width: 1.1em; height: 1.1em; }
+.icon-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.icon-grid button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text-2);
+  min-width: 0;
+}
+.icon-grid .ic { width: 24px; height: 24px; vertical-align: 0; color: var(--accent); }
+.icon-grid span { font-size: 0.68rem; line-height: 1.1; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icon-grid button.active { border-color: var(--accent); background: var(--accent-soft); color: var(--text); font-weight: 600; }
+
 /* Explicação de cada aba */
 .help {
   display: flex;

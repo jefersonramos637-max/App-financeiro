@@ -45,6 +45,9 @@ instalado na tela inicial como um app e continua funcionando sem internet.
   (padrão 10%, abaixo do CDI para ser conservador). Simula qualquer valor por mês e traz um guia de
   onde guardar com segurança conforme o prazo (Tesouro Selic, CDB, LCI/LCA, Tesouro IPCA+) e a tabela
   do Imposto de Renda. É informação educativa, não recomendação de investimento.
+- **Ícones**: biblioteca própria de ícones de traço (24×24, mesmo estilo), usada nas categorias, dívidas,
+  cartões e avisos. As metas têm 40 opções de ícone. Os emojis que ainda aparecem em textos são trocados
+  por ícones automaticamente, e metas antigas que guardavam emoji são convertidas.
 - **Gráficos**: para onde foi o dinheiro e os últimos 6 meses.
 - **Desfazer**: ao excluir um lançamento ou meta, dá para desfazer na hora.
 - **Gestos**: arraste para os lados para trocar de mês e o painel para baixo para fechar.

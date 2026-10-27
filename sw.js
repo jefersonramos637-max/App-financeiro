@@ -1,12 +1,12 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.13.0';
+const VERSION = '1.14.0';
 const NOTES = [
-  'Nas metas, “Como chegar lá”: quanto guardar por mês, em quanto tempo chega e quanto rende',
-  'Guia de onde guardar com segurança: Tesouro Selic, CDB, LCI e LCA, conforme o prazo da meta',
-  'Simule qualquer valor por mês e veja a data em que a meta fica pronta',
-  'Correção: o app não recarrega mais sozinho na primeira abertura',
+  'Visual novo e mais profissional: os emojis deram lugar a ícones de traço, todos no mesmo estilo',
+  'Metas com 40 opções de ícone: casa, carro, viagem, estudos, pet, academia, negócio e muito mais',
+  'Funciona nos temas claro e escuro',
+  'Metas e dívidas antigas continuam funcionando, com o ícone convertido sozinho',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [

@@ -3,6 +3,151 @@
 (() => {
   const STORAGE_KEY = 'meubolso:v1';
 
+  // ---------- Ícones ----------
+  // Todos desenhados em grade 24×24, só traço (sem preenchimento), para ficarem iguais entre si.
+  // Os emojis que ainda aparecem em textos são trocados por estes ícones automaticamente.
+
+  const ICON_PATHS = {
+    shield: '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/>',
+    plane: '<path d="M21 3L3 10.5l7 2.5 2.5 7z"/><path d="M10 13L21 3"/>',
+    moto: '<circle cx="6" cy="16" r="3.5"/><circle cx="18" cy="16" r="3.5"/><path d="M6 16l3-6h5l4 6M14 10l-1-3h-3M9 10l3 6"/>',
+    car: '<path d="M5 17H3v-5l2-5h14l2 5v5h-2"/><path d="M5 12h14"/><circle cx="7.5" cy="17" r="2"/><circle cx="16.5" cy="17" r="2"/><path d="M9.5 17h5"/>',
+    home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
+    cap: '<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11.5V16c0 1.5 3 3 6 3s6-1.5 6-3v-4.5"/><path d="M22 9v6"/>',
+    ring: '<circle cx="12" cy="15" r="5"/><path d="M9 6l3-3 3 3-3 3z"/>',
+    phone: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
+    gift: '<rect x="3" y="9" width="18" height="4"/><path d="M5 13v8h14v-8"/><path d="M12 9v12"/><path d="M12 9c-2 0-4-1-4-3s3-3 4 0c1-3 4-3 4-1s-2 4-4 4"/>',
+    piggy: '<path d="M4 12c0-3 3-6 8-6s8 3 8 6-2 5-4 6v2h-3v-1h-2v1H8v-2c-3-1-4-3-4-6z"/><circle cx="16" cy="11" r=".7"/><path d="M10 6V4"/>',
+    wallet: '<path d="M3 7h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7l12-4v4"/><circle cx="17" cy="14" r="1"/>',
+    briefcase: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M3 13h18"/>',
+    laptop: '<rect x="5" y="5" width="14" height="10" rx="1"/><path d="M2 19h20l-2-4H4z"/>',
+    camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+    gamepad: '<rect x="3" y="8" width="18" height="10" rx="5"/><path d="M8 11v4M6 13h4"/><circle cx="15.5" cy="12.5" r=".8"/><circle cx="17.5" cy="14.5" r=".8"/>',
+    book: '<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5"/><path d="M8 7h7"/>',
+    heart: '<path d="M12 20s-8-5-8-11a4.5 4.5 0 0 1 8-2.5A4.5 4.5 0 0 1 20 9c0 6-8 11-8 11z"/>',
+    users: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.5 2.5-6 6-6s6 2.5 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14c2.5 0 4 2 4 5"/>',
+    paw: '<circle cx="6" cy="10" r="1.8"/><circle cx="10" cy="6" r="1.8"/><circle cx="14" cy="6" r="1.8"/><circle cx="18" cy="10" r="1.8"/><path d="M12 11c-3 0-5 3-5 5.5 0 2 2 2.5 3.5 2 1-.4 2.5-.4 3.5 0 1.5.5 3.5 0 3.5-2C17 14 15 11 12 11z"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/>',
+    leaf: '<path d="M12 21v-8"/><path d="M12 13c-5 0-7-4-7-9 5 0 7 3 7 9z"/><path d="M12 15c4 0 6-3 6-7-4 0-6 2-6 7z"/>',
+    umbrella: '<path d="M3 12a9 9 0 0 1 18 0z"/><path d="M12 12v7a2 2 0 0 0 4 0"/>',
+    mountain: '<path d="M3 20l6-11 4 6 3-4 5 9z"/>',
+    music: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+    dumbbell: '<path d="M6 8v8M3 10v4M18 8v8M21 10v4M6 12h12"/>',
+    cross: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M12 8v8M8 12h8"/>',
+    tv: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M8 21h8M12 18v3"/>',
+    shirt: '<path d="M8 3l-5 4 3 3 2-1v12h8V9l2 1 3-3-5-4a4 4 0 0 1-8 0z"/>',
+    coffee: '<path d="M4 8h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 10h2a2 2 0 0 1 0 4h-2"/><path d="M8 3v2M12 3v2"/>',
+    utensils: '<path d="M6 3v7a2 2 0 0 0 2 2v9M10 3v7M6 6h4"/><path d="M17 21V3c-2 1-3 4-3 7s1 4 3 4"/>',
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
+    building: '<path d="M5 21V4h9v17M14 9h5v12M3 21h18"/><path d="M8 8h3M8 12h3M8 16h3"/>',
+    rocket: '<path d="M12 3c4 2 6 6 5 11l-3 3h-4l-3-3c-1-5 1-9 5-11z"/><circle cx="12" cy="10" r="1.6"/><path d="M9 18l-3 3M15 18l3 3"/>',
+    star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+    trophy: '<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H4v1a3 3 0 0 0 4 3M16 6h4v1a3 3 0 0 1-4 3"/><path d="M12 13v4M8 21h8M10 17h4"/>',
+    target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+    coins: '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3 3 7 3s7-1.3 7-3V6"/><path d="M5 12v6c0 1.7 3 3 7 3s7-1.3 7-3v-6"/>',
+    chart: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+    bolt: '<path d="M13 2L5 14h6l-1 8 8-12h-6z"/>',
+    cart: '<circle cx="9" cy="20" r="1.5"/><circle cx="17" cy="20" r="1.5"/><path d="M3 4h3l2.5 11h9l2-8H7"/>',
+    pill: '<rect x="3" y="9" width="18" height="6" rx="3" transform="rotate(-45 12 12)"/><path d="M9 9l6 6"/>',
+    card: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/>',
+    sparkles: '<path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/><path d="M19 3v4M17 5h4"/>',
+    bag: '<path d="M5 8h14l-1 12H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
+    scissors: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M8 7.5L20 18M8 16.5L20 6"/>',
+    box: '<path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/>',
+    inbox: '<path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1 3h6l1-3h5"/>',
+    bank: '<path d="M3 10l9-6 9 6M5 10v8M9.7 10v8M14.3 10v8M19 10v8M3 21h18"/>',
+    file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>',
+    calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+    alert: '<path d="M12 3L2 21h20z"/><path d="M12 10v5M12 18v.5"/>',
+    lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+    save: '<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/>',
+    bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.3 1 2.1h5c0-.8.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
+    chat: '<path d="M4 5h16v11H9l-5 4z"/>',
+    hourglass: '<path d="M6 3h12M6 21h12M7 3c0 5 5 6 5 9s-5 4-5 9M17 3c0 5-5 6-5 9s5 4 5 9"/>',
+    checkcircle: '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>',
+    trenddown: '<path d="M3 7l6 6 4-4 8 8"/><path d="M15 17h6v-6"/>',
+    flask: '<path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/><path d="M8 15h8"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    refresh: '<path d="M20 11a8 8 0 0 0-14-4L4 9M4 4v5h5M4 13a8 8 0 0 0 14 4l2-2M20 20v-5h-5"/>',
+    upload: '<path d="M12 16V4M7 9l5-5 5 5M4 20h16"/>',
+    download: '<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>',
+    barchart: '<path d="M5 21V10M12 21V3M19 21v-7"/>',
+    clipboard: '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/>',
+    pin: '<path d="M12 21s7-6 7-12a7 7 0 0 0-14 0c0 6 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+    arrowright: '<path d="M4 12h16M14 6l6 6-6 6"/>',
+    arrowup: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+    arrowdown: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+    flag: '<path d="M5 21V4M5 4h12l-2 4 2 4H5"/>',
+    flame: '<path d="M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-4-1-6 1-9z"/>',
+    banknote: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>',
+    ban: '<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>',
+    check: '<path d="M5 12l5 5 9-10"/>',
+    x: '<path d="M6 6l12 12M18 6L6 18"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
+    forward: '<path d="M4 6l8 6-8 6zM12 6l8 6-8 6z"/>',
+    handshake: '<path d="M3 12l4-4 4 2 4-2 6 5-5 5-3-2-3 2-3-3z"/>',
+  };
+
+  const svgIcon = (id) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[id] || ICON_PATHS.target}</svg>`;
+
+  // Emoji que o app usa nos textos, e o ícone que o substitui.
+  const EMOJI_ICON = {
+    '🛡': 'shield', '✈': 'plane', '🏍': 'moto', '🚗': 'car', '🏠': 'home', '🎓': 'cap', '💍': 'ring', '📱': 'phone',
+    '🎁': 'gift', '🐷': 'piggy', '💼': 'briefcase', '💳': 'card', '💡': 'bulb', '🛒': 'cart', '💊': 'pill', '📚': 'book',
+    '📺': 'tv', '🛍': 'bag', '💈': 'scissors', '📦': 'box', '📈': 'chart', '📥': 'inbox', '📄': 'file', '🏦': 'bank',
+    '📅': 'calendar', '📆': 'calendar', '🗓': 'calendar', '🔮': 'calendar', '⚠': 'alert', '🚨': 'alert', '👎': 'alert',
+    '🔒': 'lock', '💾': 'save', '💬': 'chat', '⏳': 'hourglass', '✅': 'checkcircle', '👍': 'checkcircle', '📉': 'trenddown',
+    '🧪': 'flask', '🔍': 'search', '🗒': 'file', '👋': 'sparkles', '⏰': 'clock', '⏱': 'clock', '🎯': 'target',
+    '🔄': 'refresh', '⬆': 'arrowup', '⬇': 'arrowdown', '📊': 'barchart', '📋': 'clipboard', '📍': 'pin', '➡': 'arrowright',
+    '→': 'arrowright', '🏁': 'flag', '🔥': 'flame', '💵': 'banknote', '💰': 'coins', '💸': 'coins', '⛔': 'ban', '✓': 'check',
+    '✕': 'x', '⚙': 'gear', '⏩': 'forward', '🤝': 'handshake', '🎉': 'sparkles', '✨': 'sparkles', '🏆': 'trophy',
+    '⭐': 'star', '⚡': 'bolt', '🍔': 'utensils', '💪': 'dumbbell',
+  };
+  const EMOJI_RE = new RegExp(`(${Object.keys(EMOJI_ICON).join('|')})\\uFE0F?`, 'g');
+
+  // Troca emojis por ícones dentro de um trecho da tela (textos soltos e botões).
+  const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'SELECT', 'OPTION', 'SVG', 'svg']);
+  function iconifyText(node) {
+    const text = node.nodeValue;
+    if (!text || text.length > 400 || !/[^\x00-\x7F]/.test(text)) return;
+    EMOJI_RE.lastIndex = 0;
+    if (!EMOJI_RE.test(text)) return;
+    EMOJI_RE.lastIndex = 0;
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    let m;
+    while ((m = EMOJI_RE.exec(text))) {
+      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const holder = document.createElement('span');
+      holder.innerHTML = svgIcon(EMOJI_ICON[m[1]]);
+      frag.appendChild(holder.firstChild);
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    node.parentNode.replaceChild(frag, node);
+  }
+
+  function iconify(root) {
+    if (root.nodeType === 3) {
+      if (root.parentNode && !SKIP_TAGS.has(root.parentNode.nodeName)) iconifyText(root);
+      return;
+    }
+    if (root.nodeType !== 1 || SKIP_TAGS.has(root.nodeName)) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (n.parentNode && SKIP_TAGS.has(n.parentNode.nodeName) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    });
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach(iconifyText);
+  }
+
+  // Observa a tela e troca emojis de qualquer conteúdo novo (telas, painéis, avisos).
+  const iconObserver = new MutationObserver((records) => {
+    for (const r of records) r.addedNodes.forEach((n) => { if (n.isConnected) iconify(n); });
+    iconObserver.takeRecords();
+  });
+
   // ---------- Categorias ----------
 
   const CATEGORIES = {
@@ -38,7 +183,24 @@
     { id: 'savings', name: 'Futuro', pct: 20, hint: 'Investir, guardar, reserva de emergência' },
   ];
 
-  const GOAL_ICONS = ['🛡️', '✈️', '🏍️', '🚗', '🏠', '🎓', '💍', '📱', '🎁', '🐷'];
+  const GOAL_ICON_LIST = [
+    ['shield', 'Reserva'], ['plane', 'Viagem'], ['moto', 'Moto'], ['car', 'Carro'], ['home', 'Casa'], ['cap', 'Estudos'],
+    ['ring', 'Casamento'], ['phone', 'Celular'], ['gift', 'Presente'], ['piggy', 'Cofrinho'], ['wallet', 'Carteira'],
+    ['briefcase', 'Trabalho'], ['laptop', 'Computador'], ['camera', 'Câmera'], ['gamepad', 'Games'], ['book', 'Livros'],
+    ['heart', 'Saúde'], ['users', 'Família'], ['paw', 'Pet'], ['key', 'Imóvel'], ['leaf', 'Sítio'], ['umbrella', 'Férias'],
+    ['mountain', 'Aventura'], ['music', 'Música'], ['dumbbell', 'Academia'], ['cross', 'Tratamento'], ['tv', 'TV'],
+    ['shirt', 'Roupas'], ['coffee', 'Café'], ['utensils', 'Restaurante'], ['globe', 'Intercâmbio'], ['building', 'Negócio'],
+    ['rocket', 'Projeto'], ['star', 'Sonho'], ['trophy', 'Conquista'], ['target', 'Objetivo'], ['coins', 'Investir'],
+    ['chart', 'Crescer'], ['bolt', 'Energia'], ['cart', 'Compras'],
+  ];
+  const GOAL_ICONS = GOAL_ICON_LIST.map((i) => i[0]);
+  // Metas antigas guardavam um emoji: converte para o ícone equivalente.
+  const toGoalIcon = (v) => {
+    if (GOAL_ICONS.includes(v)) return v;
+    const id = EMOJI_ICON[String(v || '').replace(/\uFE0F/g, '')];
+    return GOAL_ICONS.includes(id) ? id : GOAL_ICONS[0];
+  };
+  const goalIconHTML = (v) => svgIcon(toGoalIcon(v));
 
   const DEBT_TYPES = [
     { icon: '🏦', name: 'Empréstimo' },
@@ -219,7 +381,7 @@
       .map((g) => ({
         id: String(g.id || uid()),
         name: g.name.slice(0, 40),
-        icon: GOAL_ICONS.includes(g.icon) ? g.icon : GOAL_ICONS[0],
+        icon: toGoalIcon(g.icon),
         target: g.target,
         saved: Number.isInteger(g.saved) && g.saved > 0 ? Math.min(g.saved, MAX_CENTS) : 0,
         deadline: typeof g.deadline === 'string' && /^\d{4}-\d{2}$/.test(g.deadline) ? g.deadline : '',
@@ -1980,7 +2142,7 @@
             : '<span class="badge warning">⚠ Prazo vencido</span>';
         }
         return `<section class="card goal">
-          <div class="goal-head"><span class="tx-icon" aria-hidden="true">${g.icon}</span>
+          <div class="goal-head"><span class="tx-icon" aria-hidden="true">${goalIconHTML(g.icon)}</span>
             <div style="min-width:0"><h2 class="goal-name">${esc(g.name)}</h2>
               ${plan ? `<p class="card-sub">${plan}</p>` : ''}</div></div>
           <div class="progress" style="grid-column:auto"><div class="${remaining ? 'neutral' : 'good'}" style="width:${(pct * 100).toFixed(1)}%"></div></div>
@@ -2095,7 +2257,7 @@
     const cur = currentMonth();
     const deadlineMonths = g.deadline ? monthsBetween(cur, g.deadline) : 0;
     const emergency = /reserva|emerg/i.test(g.name);
-    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">${g.icon} Como chegar lá</h2>
+    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">${goalIconHTML(g.icon)} Como chegar lá</h2>
       <p class="hint"><strong>${esc(g.name)}</strong>: faltam <strong class="num">${fmtMoney(remaining)}</strong> de ${fmtMoney(g.target)}${g.saved ? ` (já tem ${fmtMoney(g.saved)})` : ''}.</p>
       ${remaining ? `<div class="field"><label for="goalRate">Rendimento estimado ao ano, já descontado o imposto</label>
         <input id="goalRate" inputmode="decimal" autocomplete="off" value="${String(rate0).replace('.', ',')}">
@@ -2558,13 +2720,13 @@
 
   function openGoalSheet(goal) {
     const isNew = !goal;
-    let icon = goal ? goal.icon : GOAL_ICONS[0];
+    let icon = goal ? toGoalIcon(goal.icon) : GOAL_ICONS[0];
     const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">${isNew ? 'Nova meta' : 'Editar meta'}</h2>
       <form id="goalForm" class="form" novalidate>
         <div class="field"><label for="goalName">Nome da meta</label>
           <input id="goalName" maxlength="40" placeholder="Ex.: Reserva de emergência" value="${esc(goal ? goal.name : '')}" autocomplete="off"></div>
         <div class="field"><span class="label">Ícone</span>
-          <div class="emoji-grid" id="iconGrid">${GOAL_ICONS.map((i) => `<button type="button" data-icon="${i}" class="${i === icon ? 'active' : ''}" aria-label="Ícone ${i}">${i}</button>`).join('')}</div></div>
+          <div class="icon-grid" id="iconGrid" role="radiogroup" aria-label="Ícone da meta">${GOAL_ICON_LIST.map(([id, label]) => `<button type="button" role="radio" aria-checked="${id === icon}" data-icon="${id}" title="${label}" aria-label="${label}" class="${id === icon ? 'active' : ''}">${svgIcon(id)}<span>${label}</span></button>`).join('')}</div></div>
         <div class="field"><label for="goalTarget">Quanto quer juntar</label>
           <input id="goalTarget" class="money" inputmode="numeric" autocomplete="off"></div>
         <div class="field-row">
@@ -2586,7 +2748,10 @@
       const b = e.target.closest('button');
       if (!b) return;
       icon = b.dataset.icon;
-      $$('#iconGrid button', root).forEach((x) => x.classList.toggle('active', x === b));
+      $$('#iconGrid button', root).forEach((x) => {
+        x.classList.toggle('active', x === b);
+        x.setAttribute('aria-checked', String(x === b));
+      });
     });
     $('#goalForm', root).addEventListener('submit', (e) => {
       e.preventDefault();
@@ -3144,7 +3309,7 @@
 
   function openDepositSheet(goal) {
     let mode = 'in';
-    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">${goal.icon} ${esc(goal.name)}</h2>
+    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">${goalIconHTML(goal.icon)} ${esc(goal.name)}</h2>
       <form id="depForm" class="form" novalidate>
         <div class="segmented" id="depSeg">
           <button type="button" data-value="in" class="active">Guardar</button>
@@ -3955,8 +4120,8 @@
     }
     s.budgets = { mercado: 60000, restaurante: 18000, lazer: 20000, compras: 25000, transporte: 30000 };
     s.goals = [
-      { id: uid(), name: 'Reserva de emergência', icon: '🛡️', target: 1200000, saved: 360000, deadline: shiftMonth(cur, 18), createdAt: Date.now() },
-      { id: uid(), name: 'Moto nova', icon: '🏍️', target: 1500000, saved: 210000, deadline: shiftMonth(cur, 24), createdAt: Date.now() },
+      { id: uid(), name: 'Reserva de emergência', icon: 'shield', target: 1200000, saved: 360000, deadline: shiftMonth(cur, 18), createdAt: Date.now() },
+      { id: uid(), name: 'Moto nova', icon: 'moto', target: 1500000, saved: 210000, deadline: shiftMonth(cur, 24), createdAt: Date.now() },
     ];
     // Próximo vencimento a partir de hoje para o dia informado.
     const nextOn = (day) => dueIn(Number(today.slice(8, 10)) > day ? shiftMonth(cur, 1) : cur, day);
@@ -4545,6 +4710,10 @@
   }
 
   let started = false;
+  // Troca os emojis por ícones já na tela inicial e em tudo o que for desenhado depois.
+  iconify(document.body);
+  iconObserver.observe(document.body, { childList: true, subtree: true });
+
   function start() {
     // Dados de versão antiga: grava logo no formato novo.
     const raw = parseJSON(readRaw());
