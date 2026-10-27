@@ -4435,7 +4435,7 @@
   window.addEventListener('scroll', () => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); }, { passive: true });
   // Ao digitar, o painel vai para o topo da tela, longe do teclado (que cobre a parte de baixo).
   const sheetBack = $('#sheet');
-  const typing = () => { const f = document.activeElement; return !!(f && f.closest && f.closest('.sheet') && /^(INPUT|TEXTAREA|SELECT)$/.test(f.tagName)); };
+  const typing = () => { const f = document.activeElement; return !!(f && f.closest && f.closest('.sheet') && (f.tagName === 'TEXTAREA' || (f.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|range|color|file)$/.test(f.type)))); };
   sheetBack.addEventListener('focusin', () => { if (typing()) { typingAt = Date.now(); sheetBack.classList.add('typing'); } });
   sheetBack.addEventListener('focusout', () => setTimeout(() => { if (!typing()) sheetBack.classList.remove('typing'); }, 80));
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
