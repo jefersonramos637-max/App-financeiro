@@ -511,7 +511,7 @@
     if (!sal) return [];
     const cur = currentMonth();
     const list = [];
-    for (const ym of [shiftMonth(cur, -1), cur, shiftMonth(cur, 1)]) {
+    for (const ym of [shiftMonth(cur, -1), cur, shiftMonth(cur, 1), shiftMonth(cur, 2)]) {
       sal.paydays.forEach((p, i) => list.push({ ym, i, day: p.day, amount: p.amount, date: payDate(ym, p.day, sal.weekendBefore) }));
     }
     return list.sort((a, b) => (a.date < b.date ? -1 : 1));
@@ -581,7 +581,19 @@
       if (t.type === 'income' && t.date <= today) inc += t.amount;
       else if (t.type === 'expense' && t.date < next.date) exp += t.amount;
     }
-    return { next, days: daysUntil(next.date), inc, exp, available: inc - exp };
+    const after = dates.find((p) => p.date > next.date);
+    return { next, after, days: daysUntil(next.date), inc, exp, available: inc - exp };
+  }
+
+  // Ainda não recebeu nada: mostra como vai ficar a quinzena quando o próximo salário cair.
+  function salaryPlan(allow) {
+    const { next, after } = allow;
+    if (!after) return null;
+    let exp = 0;
+    for (const t of state.transactions) if (t.type === 'expense' && t.date >= next.date && t.date < after.date) exp += t.amount;
+    const days = Math.max(1, daysUntil(after.date) - daysUntil(next.date));
+    const left = next.amount - allow.exp - exp;
+    return { exp, days, left, after };
   }
 
   const salaryLabel = () => (state.salary ? `dia${state.salary.paydays.length > 1 ? 's' : ''} ${state.salary.paydays.map((p) => p.day).join(' e ')}` : '');
@@ -701,9 +713,23 @@
     const allow = ui.month === cur && state.salary ? salaryAllowance() : null;
     if (allow) {
       const when = allow.days === 1 ? 'amanhã' : `daqui a ${allow.days} dias, em ${shortDate(allow.next.date)}`;
-      if (allow.inc === 0) {
-        body = `<p>Seu próximo salário (dia ${allow.next.day}) cai ${when}. Lance o que você recebeu neste mês para eu calcular quanto pode gastar por dia.</p>
-          <button class="link-btn" type="button" data-action="new-income">Lançar o que recebi</button>`;
+      const plan = allow.inc === 0 ? salaryPlan(allow) : null;
+      if (allow.inc === 0 && (!allow.next.amount || !plan)) {
+        icon = '⏳';
+        body = `<p>Seu próximo salário (dia ${allow.next.day}) cai ${when}.
+          Coloque o valor em <strong>Meu salário</strong> para eu planejar a quinzena.</p>
+          <button class="link-btn" type="button" data-action="salary">Colocar o valor</button>`;
+      } else if (allow.inc === 0) {
+        icon = '🗓️';
+        const before = allow.exp ? `<p class="tip-small">⚠ Antes do salário vencem <strong class="num">${money(allow.exp)}</strong> em contas. Já estão descontadas na conta acima.</p>` : '';
+        body = plan.left > 0
+          ? `<p>Seu salário do dia ${allow.next.day} cai ${when} (<strong class="num">${money(allow.next.amount)}</strong>).
+            Depois das contas até o dia ${plan.after.day}, vão sobrar <strong class="num">${money(plan.left)}</strong>:</p>
+            <span class="tip-big num">${money(Math.floor(plan.left / plan.days))} por dia</span>
+            <p class="tip-small">É quanto você vai poder gastar por dia nessa quinzena (${plan.days} dias).</p>${before}`
+          : `<p>Seu salário do dia ${allow.next.day} cai ${when} (<strong class="num">${money(allow.next.amount)}</strong>).
+            <strong>As contas até o dia ${plan.after.day} somam ${money(allow.exp + plan.exp)}</strong>, ou seja, faltam
+            <strong class="num">${money(-plan.left)}</strong>. Veja o que dá para adiar ou cortar.</p>`;
       } else if (allow.available > 0) {
         icon = '📅';
         body = `<p>Você pode gastar até <span class="tip-big num">${money(Math.floor(allow.available / allow.days))} por dia</span>

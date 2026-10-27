@@ -1,11 +1,11 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 const NOTES = [
+  'Antes do primeiro salário cair, o app já mostra quanto vai sobrar por dia na quinzena',
   'Meu salário: informe os dias (ex.: 15 e 30) e o app lança o salário sozinho todo mês',
-  '“Quanto posso gastar por dia” agora conta até o próximo pagamento, já descontando as contas que vencem antes',
-  'Campo de valor mais firme: os números sempre entram pelo final, como no app do banco',
+  '“Quanto posso gastar por dia” conta até o próximo pagamento, já descontando as contas que vencem antes',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [
