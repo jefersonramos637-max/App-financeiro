@@ -498,8 +498,18 @@
       else b.removeAttribute('aria-current');
     });
     const views = { home: viewHome, transactions: viewTransactions, debts: viewDebts, budget: viewBudget, goals: viewGoals };
-    $('#view').innerHTML = views[ui.tab]();
+    const view = $('#view');
+    view.innerHTML = views[ui.tab]();
     if (ui.tab === 'transactions') renderTxList();
+    // Ao trocar de aba, os cartões entram em sequência.
+    if (ui.lastTab !== ui.tab) {
+      ui.lastTab = ui.tab;
+      view.classList.remove('enter');
+      void view.offsetWidth;
+      view.classList.add('enter');
+      clearTimeout(ui.enterTimer);
+      ui.enterTimer = setTimeout(() => view.classList.remove('enter'), 700);
+    }
   }
 
   function demoBanner() {
@@ -521,7 +531,7 @@
       demoBanner(),
       backupReminder(),
       `<section class="card hero" aria-label="Resumo do mês">
-        <p class="eyebrow">Saldo do mês · o que entrou menos o que saiu</p>
+        <p class="eyebrow">Saldo do mês</p>
         <div class="hero-value num">${money(bal)}</div>
         <div class="hero-split">
           <div><span>⬆ Entrou</span><strong class="num">${money(inc)}</strong></div>
@@ -1697,6 +1707,14 @@
       <p class="hint" style="margin-bottom:8px">O app guarda sozinho uma cópia por dia dos últimos 7 dias. Use se apagar algo sem querer.</p>
       <div class="settings-list" id="snapList"><p class="hint">Carregando…</p></div>
 
+      <p class="eyebrow settings-section">Sobre o app</p>
+      <p class="hint" style="margin-bottom:8px">Meu Bolso ${currentInfo ? `versão <strong>${esc(currentInfo.version)}</strong>` : ''}.
+        Dica: puxe a tela para baixo para procurar atualização.</p>
+      <div class="settings-list">
+        <button class="btn" type="button" id="checkUpdate">🔄 Procurar atualização</button>
+        ${currentInfo && currentInfo.notes ? '<button class="btn" type="button" id="seeNews">✨ Ver novidades desta versão</button>' : ''}
+      </div>
+
       <p class="eyebrow settings-section">Dados</p>
       <p class="hint" id="storageInfo" style="margin-bottom:8px"></p>
       <div class="settings-list">
@@ -1717,6 +1735,11 @@
 
     // Segurança
     const on = (id, fn) => { const el = $(`#${id}`, root); if (el) el.addEventListener('click', fn); };
+    on('checkUpdate', () => {
+      closeSheet();
+      checkForUpdate();
+    });
+    on('seeNews', () => showWhatsNew(currentInfo, false));
     on('createPin', () => openPinSheet('create'));
     on('changePin', () => openPinSheet('change'));
     on('removePin', () => openPinSheet('remove'));
@@ -2354,32 +2377,308 @@
     render();
   });
 
-  // Atualização: quando sai versão nova, oferece atualizar na hora.
+  // ---------- Atualizações ----------
+  // A versão e as novidades ficam no sw.js. O app pergunta ao service worker por mensagem.
+
+  const VERSION_KEY = `${STORAGE_KEY}:versao`;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const LOGO = `<svg viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#146c5b"/>
+    <rect x="104" y="150" width="304" height="232" rx="36" fill="#fff"/><path d="M104 206h304" stroke="#146c5b" stroke-width="22"/>
+    <rect x="300" y="250" width="108" height="76" rx="22" fill="#dcefe9"/><circle cx="340" cy="288" r="14" fill="#146c5b"/>
+    <path d="M168 300l40-40 36 30 46-56" fill="none" stroke="#eb6834" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
   let swRegistration = null;
+  let currentInfo = null;
+  let updatingNow = false;
+
+  function askWorker(worker) {
+    return new Promise((resolve) => {
+      if (!worker) {
+        resolve(null);
+        return;
+      }
+      const channel = new MessageChannel();
+      const timer = setTimeout(() => resolve(null), 1500);
+      channel.port1.onmessage = (e) => {
+        clearTimeout(timer);
+        resolve(e.data && e.data.version ? e.data : null);
+      };
+      worker.postMessage('getInfo', [channel.port2]);
+    });
+  }
+
+  function waitInstalled(worker) {
+    return new Promise((resolve) => {
+      if (!worker || worker.state !== 'installing') {
+        resolve();
+        return;
+      }
+      const timer = setTimeout(resolve, 10000);
+      worker.addEventListener('statechange', () => {
+        if (worker.state !== 'installing') {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+    });
+  }
+
+  const notesList = (notes) => (notes || []).map((n) => `<li>${esc(n)}</li>`).join('');
+
+  // Cartão que sobe de baixo avisando da versão nova.
+  let offering = false;
+  async function offerUpdate(worker) {
+    if (updatingNow || offering) return;
+    offering = true;
+    const info = await askWorker(worker);
+    $('#toast').hidden = true;
+    const card = document.createElement('div');
+    card.id = 'updateCard';
+    card.className = 'update-card';
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-labelledby', 'updTitle');
+    card.innerHTML = `<div class="update-head">
+        <div class="update-icon" aria-hidden="true">✨</div>
+        <div><strong id="updTitle">Nova versão disponível</strong>
+          <span>${info ? `Versão ${esc(info.version)} · ` : ''}leva só alguns segundos</span></div>
+      </div>
+      ${info && info.notes && info.notes.length ? `<p class="update-label">O que tem de novo:</p><ul class="update-notes">${notesList(info.notes.slice(0, 3))}</ul>` : ''}
+      <div class="update-actions">
+        <button class="btn" type="button" data-upd="later">Depois</button>
+        <button class="btn primary" type="button" data-upd="now">Atualizar agora</button>
+      </div>`;
+    document.body.appendChild(card);
+    card.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-upd]');
+      if (!b) return;
+      hideUpdateCard();
+      if (b.dataset.upd === 'now') runUpdate(worker, info);
+      else toast('Tudo bem! A atualização fica para a próxima vez que abrir o app.');
+    });
+  }
+
+  function hideUpdateCard() {
+    offering = false;
+    const card = $('#updateCard');
+    if (!card) return;
+    card.classList.add('leaving');
+    setTimeout(() => card.remove(), reduceMotion() ? 0 : 260);
+  }
+
+  // Tela de progresso: guarda os dados, instala e recarrega.
+  async function runUpdate(worker, info) {
+    updatingNow = true;
+    closeSheet();
+    const el = document.createElement('div');
+    el.className = 'updating';
+    el.setAttribute('role', 'alertdialog');
+    el.setAttribute('aria-label', 'Atualizando o app');
+    el.innerHTML = `<div class="updating-inner">
+        <div class="updating-logo"><span class="updating-ring" aria-hidden="true"></span>${LOGO}</div>
+        <h2>Atualizando o Meu Bolso</h2>
+        <ol class="updating-steps" aria-live="polite">
+          <li data-step="save">Guardando seus dados</li>
+          <li data-step="install">Instalando ${info ? `a versão ${esc(info.version)}` : 'a nova versão'}</li>
+          <li data-step="done">Pronto!</li>
+        </ol>
+        <div class="updating-bar"><span></span></div>
+        <p class="hint">Seus dados continuam guardados no aparelho.</p>
+      </div>`;
+    document.body.appendChild(el);
+    const step = (name, pct) => {
+      let reached = false;
+      $$('.updating-steps li', el).forEach((li) => {
+        if (li.dataset.step === name) {
+          li.className = name === 'done' ? 'done' : 'active';
+          reached = true;
+        } else {
+          li.className = reached ? '' : 'done';
+        }
+      });
+      $('.updating-bar span', el).style.width = `${pct}%`;
+    };
+    requestAnimationFrame(() => el.classList.add('show'));
+    step('save', 25);
+    await Promise.all([saveChain, wait(700)]);
+    step('install', 70);
+    const changed = new Promise((resolve) => {
+      navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true });
+      setTimeout(resolve, 6000);
+    });
+    worker.postMessage('skipWaiting');
+    await Promise.all([changed, wait(700)]);
+    step('done', 100);
+    await wait(700);
+    location.reload();
+  }
+
+  // Depois de atualizar: novidades com confete.
+  function showWhatsNew(info, celebrate = true) {
+    if (!info) return;
+    const root = openSheet(`<div class="whatsnew">
+        <div class="whatsnew-badge" aria-hidden="true">🎉</div>
+        <h2 class="sheet-title" id="sheetTitle">${celebrate ? 'Atualizado!' : 'Novidades'} Versão ${esc(info.version)}</h2>
+        <p class="hint">Veja o que mudou:</p>
+        <ul class="whatsnew-list">${notesList(info.notes)}</ul>
+        <button class="btn primary block" type="button" id="whatsNewOk">Bora usar!</button>
+      </div>`);
+    $('#whatsNewOk', root).addEventListener('click', closeSheet);
+    if (celebrate) confetti();
+  }
+
+  async function checkWhatsNew() {
+    if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return;
+    const info = await askWorker(navigator.serviceWorker.controller);
+    if (!info) return;
+    currentInfo = info;
+    let last = null;
+    try {
+      last = localStorage.getItem(VERSION_KEY);
+      localStorage.setItem(VERSION_KEY, info.version);
+    } catch { /* sem armazenamento */ }
+    if (last === info.version) return;
+    // Sem versão anterior anotada: só mostra se a pessoa já usava o app antes.
+    if (!last && !(state.transactions.length || state.goals.length || state.debts.length)) return;
+    showWhatsNew(info);
+  }
+
+  // Puxar para baixo ou tocar em "Procurar atualização".
+  async function checkForUpdate() {
+    advanceDebts();
+    render();
+    if (!swRegistration) {
+      toast('Tudo em dia ✓');
+      return;
+    }
+    try {
+      await swRegistration.update();
+    } catch {
+      toast('Sem internet agora. Tente de novo mais tarde.');
+      return;
+    }
+    await waitInstalled(swRegistration.installing);
+    if (swRegistration.waiting) offerUpdate(swRegistration.waiting);
+    else toast(`Você já está na versão mais nova ✓${currentInfo ? ` (${currentInfo.version})` : ''}`);
+  }
+
+  // Confete leve em canvas; some sozinho.
+  function confetti() {
+    if (reduceMotion()) return;
+    const canvas = document.createElement('canvas');
+    canvas.className = 'confetti';
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext('2d');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+    const colors = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#146c5b'];
+    const parts = Array.from({ length: 90 }, () => ({
+      x: w / 2 + (Math.random() - 0.5) * 80,
+      y: h * 0.35,
+      vx: (Math.random() - 0.5) * 9,
+      vy: -Math.random() * 11 - 4,
+      size: Math.random() * 6 + 5,
+      rot: Math.random() * Math.PI,
+      vr: (Math.random() - 0.5) * 0.3,
+      color: colors[Math.floor(Math.random() * colors.length)],
+    }));
+    const startAt = performance.now();
+    (function frame(now) {
+      const t = now - startAt;
+      ctx.clearRect(0, 0, w, h);
+      ctx.globalAlpha = Math.max(0, 1 - t / 2200);
+      for (const p of parts) {
+        p.vy += 0.32;
+        p.vx *= 0.99;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.rot += p.vr;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+        ctx.restore();
+      }
+      if (t < 2200) requestAnimationFrame(frame);
+      else canvas.remove();
+    })(startAt);
+  }
+
+  // Puxar a tela para baixo para procurar atualização.
+  const ptr = document.createElement('div');
+  ptr.className = 'ptr';
+  ptr.setAttribute('aria-hidden', 'true');
+  ptr.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg>';
+  document.body.appendChild(ptr);
+  let pull = null;
+  const PULL_MAX = 110;
+  const PULL_ARM = 70;
+  window.addEventListener('touchstart', (e) => {
+    pull = window.scrollY <= 0 && e.touches.length === 1 && $('#sheet').hidden && !document.body.classList.contains('locked')
+      && !ptr.classList.contains('loading') ? { y: e.touches[0].clientY, dy: 0, armed: false } : null;
+  }, { passive: true });
+  window.addEventListener('touchmove', (e) => {
+    if (!pull) return;
+    const dy = Math.min(PULL_MAX, Math.max(0, (e.touches[0].clientY - pull.y) * 0.5));
+    pull.dy = dy;
+    ptr.classList.add('pulling');
+    ptr.style.transform = `translate(-50%, ${dy}px)`;
+    ptr.style.opacity = String(Math.min(1, dy / PULL_ARM));
+    $('svg', ptr).style.transform = `rotate(${dy >= PULL_ARM ? 180 : (dy / PULL_ARM) * 150}deg)`;
+    const armed = dy >= PULL_ARM;
+    if (armed && !pull.armed && navigator.vibrate) navigator.vibrate(8);
+    pull.armed = armed;
+    ptr.classList.toggle('armed', armed);
+  }, { passive: true });
+  window.addEventListener('touchend', async () => {
+    if (!pull) return;
+    const { armed } = pull;
+    pull = null;
+    ptr.classList.remove('pulling', 'armed');
+    if (!armed) {
+      ptr.style.transform = '';
+      ptr.style.opacity = '';
+      return;
+    }
+    ptr.classList.add('loading');
+    ptr.style.transform = `translate(-50%, ${PULL_ARM}px)`;
+    await Promise.all([checkForUpdate(), wait(600)]);
+    ptr.classList.remove('loading');
+    ptr.style.transform = '';
+    ptr.style.opacity = '';
+  });
+
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !window.MEUBOLSO_PREVIEW) {
     window.addEventListener('load', async () => {
       try {
         swRegistration = await navigator.serviceWorker.register('sw.js');
-        const offer = (worker) => toast('Nova versão do app disponível', {
-          label: 'Atualizar',
-          run: async () => {
-            await saveChain;
-            worker.postMessage('skipWaiting');
-          },
-        });
-        if (swRegistration.waiting && navigator.serviceWorker.controller) offer(swRegistration.waiting);
+        if (swRegistration.waiting && navigator.serviceWorker.controller) offerUpdate(swRegistration.waiting);
         swRegistration.addEventListener('updatefound', () => {
           const worker = swRegistration.installing;
           if (!worker) return;
           worker.addEventListener('statechange', () => {
-            if (worker.state === 'installed' && navigator.serviceWorker.controller) offer(worker);
+            if (worker.state === 'installed' && navigator.serviceWorker.controller) offerUpdate(worker);
           });
         });
-        let reloading = false;
+        // Primeira instalação: anota a versão para não mostrar "novidades" à toa depois.
+        navigator.serviceWorker.ready.then((reg) => askWorker(reg.active)).then((info) => {
+          if (!info) return;
+          currentInfo = currentInfo || info;
+          try {
+            if (!localStorage.getItem(VERSION_KEY) && !navigator.serviceWorker.controller) localStorage.setItem(VERSION_KEY, info.version);
+          } catch { /* sem armazenamento */ }
+        });
+        // Atualizado em outra aba: recarrega esta também.
         navigator.serviceWorker.addEventListener('controllerchange', () => {
-          if (reloading) return;
-          reloading = true;
-          location.reload();
+          if (!updatingNow) {
+            updatingNow = true;
+            location.reload();
+          }
         });
       } catch { /* sem modo offline */ }
     });
@@ -2387,17 +2686,35 @@
 
   // ---------- Início ----------
 
+  function hideSplash() {
+    const splash = $('#splash');
+    if (!splash || splash.classList.contains('hide')) return;
+    splash.classList.add('hide');
+    setTimeout(() => splash.remove(), reduceMotion() ? 0 : 450);
+  }
+
+  let started = false;
   function start() {
     advanceDebts();
     render();
+    hideSplash();
     snapshotToday().catch(() => {});
+    if (!started) {
+      started = true;
+      checkWhatsNew().catch(() => {});
+    }
   }
 
   if (isEnvelope(parseJSON(readRaw()))) {
     showLock();
+    hideSplash();
   } else {
     state = parseState(readRaw());
-    if (window.MEUBOLSO_PREVIEW && !state.transactions.length && !state.goals.length && !state.debts.length) loadDemo();
-    else start();
+    if (window.MEUBOLSO_PREVIEW && !state.transactions.length && !state.goals.length && !state.debts.length) {
+      loadDemo();
+      hideSplash();
+    } else {
+      start();
+    }
   }
 })();

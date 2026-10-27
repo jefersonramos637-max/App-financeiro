@@ -22,6 +22,9 @@ instalado na tela inicial como um app e continua funcionando sem internet.
 - **Gráficos**: para onde foi o dinheiro e os últimos 6 meses.
 - **Desfazer**: ao excluir um lançamento ou meta, dá para desfazer na hora.
 - **Gestos**: arraste para os lados para trocar de mês e o painel para baixo para fechar.
+- **Atualização suave**: quando sai versão nova aparece um cartão com as novidades; ao atualizar,
+  uma tela mostra o progresso e, no fim, as novidades com confete. Puxe a tela para baixo para
+  procurar atualização a qualquer momento.
 
 ## Segurança e dados
 
@@ -73,6 +76,6 @@ E abra `http://localhost:8000`.
 | `index.html` | Estrutura das telas |
 | `styles.css` | Visual (tema claro e escuro automáticos) |
 | `app.js` | Toda a lógica: lançamentos, orçamento, metas, gráficos, backup |
-| `sw.js` | Funcionamento offline. Ao alterar o app, aumente `CACHE` (ex.: `meubolso-v3`) para o celular oferecer a atualização |
+| `sw.js` | Funcionamento offline e versão do app. Ao publicar mudanças, aumente `VERSION` e escreva as novidades em `NOTES`: o celular mostra o aviso de atualização com essa lista |
 | `manifest.webmanifest` | Nome, cor e ícones para instalar como app |
 | `icons/` | Ícones do app |

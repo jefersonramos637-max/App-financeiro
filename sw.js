@@ -1,6 +1,13 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
-// Ao mudar qualquer arquivo do app, aumente a versão para os celulares baixarem a nova.
-const CACHE = 'meubolso-v3';
+// Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
+// o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
+const VERSION = '1.4.0';
+const NOTES = [
+  'Atualização mais suave, com tela de progresso e lista de novidades',
+  'Puxe a tela para baixo para procurar atualização',
+  'Tela de abertura e animações mais leves ao trocar de aba',
+];
+const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [
   './',
   './index.html',
@@ -24,6 +31,7 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data === 'skipWaiting') self.skipWaiting();
+  else if (event.data === 'getInfo' && event.ports[0]) event.ports[0].postMessage({ version: VERSION, notes: NOTES });
 });
 
 self.addEventListener('activate', (event) => {
