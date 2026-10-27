@@ -3,6 +3,50 @@
 (() => {
   const STORAGE_KEY = 'meubolso:v1';
 
+  // ---------- Aparência ----------
+  // Modo (automático, claro, escuro) e cor do app. Fica guardado só neste aparelho, fora dos dados
+  // protegidos por PIN, para já valer na tela de bloqueio.
+
+  const THEME_KEY = 'meubolso:tema';
+  const ACCENTS = [
+    ['verde', 'Verde', '#146c5b'], ['azul', 'Azul', '#1d4ed8'], ['roxo', 'Roxo', '#6d28d9'],
+    ['laranja', 'Laranja', '#b45309'], ['rosa', 'Rosa', '#be185d'], ['grafite', 'Grafite', '#334155'],
+  ];
+  const THEME_MODES = [['auto', 'Automático'], ['light', 'Claro'], ['dark', 'Escuro']];
+
+  function readTheme() {
+    try {
+      const o = JSON.parse(localStorage.getItem(THEME_KEY));
+      return {
+        mode: o && ['auto', 'light', 'dark'].includes(o.mode) ? o.mode : 'auto',
+        accent: o && ACCENTS.some((a) => a[0] === o.accent) ? o.accent : 'verde',
+      };
+    } catch {
+      return { mode: 'auto', accent: 'verde' };
+    }
+  }
+  let theme = readTheme();
+
+  // Cor da barra do navegador acompanha o fundo do app.
+  function syncThemeColor() {
+    const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta && bg) meta.setAttribute('content', bg);
+  }
+  function applyTheme(t) {
+    const root = document.documentElement;
+    if (t.mode === 'auto') delete root.dataset.theme; else root.dataset.theme = t.mode;
+    if (t.accent === 'verde') delete root.dataset.accent; else root.dataset.accent = t.accent;
+    syncThemeColor();
+  }
+  function saveTheme(t) {
+    theme = t;
+    applyTheme(t);
+    try { localStorage.setItem(THEME_KEY, JSON.stringify(t)); } catch { /* sem armazenamento */ }
+  }
+  applyTheme(theme);
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (theme.mode === 'auto') syncThemeColor(); });
+
   // ---------- Ícones ----------
   // Todos desenhados em grade 24×24, só traço (sem preenchimento), para ficarem iguais entre si.
   // Os emojis que ainda aparecem em textos são trocados por estes ícones automaticamente.
@@ -3468,6 +3512,16 @@
         <button class="btn" type="button" id="salaryBtn">💼 ${state.salary ? `Recebo nos ${esc(salaryLabel())} · Editar` : 'Configurar meu salário'}</button>
       </div>
 
+      <p class="eyebrow settings-section">Aparência</p>
+      <div class="settings-list">
+        <div class="segmented three" id="themeMode" role="radiogroup" aria-label="Modo">${THEME_MODES.map(([id, label]) =>
+          `<button type="button" role="radio" aria-checked="${theme.mode === id}" data-mode="${id}" class="${theme.mode === id ? 'active' : ''}">${label}</button>`).join('')}</div>
+        <div class="field"><span class="label" id="accentLabel">Cor do app</span>
+          <div class="swatches" id="themeAccent" role="radiogroup" aria-labelledby="accentLabel">${ACCENTS.map(([id, label, color]) =>
+            `<button type="button" role="radio" aria-checked="${theme.accent === id}" aria-label="${label}" title="${label}" data-accent="${id}" class="${theme.accent === id ? 'active' : ''}" style="--sw:${color}"><span></span></button>`).join('')}</div></div>
+        <p class="hint">“Automático” segue o modo do iPhone. A aparência vale só neste aparelho.</p>
+      </div>
+
       <p class="eyebrow settings-section">Cartões de crédito</p>
       <div class="settings-list">
         ${state.cards.map((c) => `<button class="btn" type="button" data-card-edit="${esc(c.id)}">💳 ${esc(c.name)} · fecha dia ${c.closingDay}, vence dia ${c.dueDay}</button>`).join('')}
@@ -3537,6 +3591,24 @@
     // Segurança
     const on = (id, fn) => { const el = $(`#${id}`, root); if (el) el.addEventListener('click', fn); };
     on('salaryBtn', openSalarySheet);
+    $('#themeMode', root).addEventListener('click', (e) => {
+      const b = e.target.closest('[data-mode]');
+      if (!b) return;
+      saveTheme({ ...theme, mode: b.dataset.mode });
+      $$('#themeMode button', root).forEach((x) => {
+        x.classList.toggle('active', x === b);
+        x.setAttribute('aria-checked', String(x === b));
+      });
+    });
+    $('#themeAccent', root).addEventListener('click', (e) => {
+      const b = e.target.closest('[data-accent]');
+      if (!b) return;
+      saveTheme({ ...theme, accent: b.dataset.accent });
+      $$('#themeAccent button', root).forEach((x) => {
+        x.classList.toggle('active', x === b);
+        x.setAttribute('aria-checked', String(x === b));
+      });
+    });
     on('setupBtn', openSetupSheet);
     on('addCard', () => openCardSheet());
     $$('[data-card-edit]', root).forEach((b) => b.addEventListener('click', () => openCardSheet(cardById(b.dataset.cardEdit))));
@@ -4129,6 +4201,8 @@
       { id: uid(), name: 'Empréstimo pessoal', icon: '🏦', amount: 38990, total: 12, paid: 4, advanced: 0, rate: 3.5, offers: [], dueDay: 15, nextDue: nextOn(15), linked: true, createdAt: Date.now() },
       { id: uid(), name: 'Celular parcelado', icon: '💳', amount: 15990, total: 10, paid: 7, advanced: 0, rate: null, offers: [], dueDay: 28, nextDue: nextOn(28), linked: true, createdAt: Date.now() },
     ];
+    // Contas fixas de meses que já passaram contam como pagas, senão o exemplo mostra dezenas de atrasadas.
+    for (const t of s.transactions) if (t.type === 'expense' && (t.recurring || t.installment) && t.date < today) t.paidAt = t.date;
     state = s;
     s.debts.forEach(syncDebtTx);
     save();

@@ -953,6 +953,50 @@ svg { display: block; }
 #rateChips { margin-top: 6px; }
 #rateChips .chip { font-size: 0.8rem; }
 
+/* Cores do app: cada uma tem a versão clara e a escura, com texto sempre legível. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-accent="azul"] { --accent: #1d4ed8; --accent-soft: #dbe7fb; --accent-ink: #ffffff; }
+:root[data-accent="roxo"] { --accent: #6d28d9; --accent-soft: #e9defa; --accent-ink: #ffffff; }
+:root[data-accent="laranja"] { --accent: #b45309; --accent-soft: #fbe6d0; --accent-ink: #ffffff; }
+:root[data-accent="rosa"] { --accent: #be185d; --accent-soft: #fbdce9; --accent-ink: #ffffff; }
+:root[data-accent="grafite"] { --accent: #334155; --accent-soft: #e2e8f0; --accent-ink: #ffffff; }
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="azul"]:not([data-theme="light"]) { --accent: #6ea8fe; --accent-soft: #172a4d; --accent-ink: #07142e; }
+  :root[data-accent="roxo"]:not([data-theme="light"]) { --accent: #b197fc; --accent-soft: #2a1f4d; --accent-ink: #170c33; }
+  :root[data-accent="laranja"]:not([data-theme="light"]) { --accent: #f5a35c; --accent-soft: #3d2612; --accent-ink: #2a1405; }
+  :root[data-accent="rosa"]:not([data-theme="light"]) { --accent: #f48fb7; --accent-soft: #43182e; --accent-ink: #2c0a1b; }
+  :root[data-accent="grafite"]:not([data-theme="light"]) { --accent: #cbd5e1; --accent-soft: #263040; --accent-ink: #0f172a; }
+}
+:root[data-theme="dark"][data-accent="azul"] { --accent: #6ea8fe; --accent-soft: #172a4d; --accent-ink: #07142e; }
+:root[data-theme="dark"][data-accent="roxo"] { --accent: #b197fc; --accent-soft: #2a1f4d; --accent-ink: #170c33; }
+:root[data-theme="dark"][data-accent="laranja"] { --accent: #f5a35c; --accent-soft: #3d2612; --accent-ink: #2a1405; }
+:root[data-theme="dark"][data-accent="rosa"] { --accent: #f48fb7; --accent-soft: #43182e; --accent-ink: #2c0a1b; }
+:root[data-theme="dark"][data-accent="grafite"] { --accent: #cbd5e1; --accent-soft: #263040; --accent-ink: #0f172a; }
+
+.swatches { display: flex; flex-wrap: wrap; gap: 12px; }
+.swatches button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+}
+.swatches button span { width: 28px; height: 28px; border-radius: 50%; background: var(--sw); }
+.swatches button.active { border-color: var(--text); }
+.swatches button.active span::after {
+  content: "";
+  display: block;
+  width: 10px;
+  height: 6px;
+  margin: 8px auto 0;
+  border-left: 2.5px solid #fff;
+  border-bottom: 2.5px solid #fff;
+  transform: rotate(-45deg);
+}
+
 /* Ícones vetoriais */
 .ic {
   display: inline-block;

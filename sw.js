@@ -1,12 +1,12 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.14.0';
+const VERSION = '1.15.0';
 const NOTES = [
-  'Visual novo e mais profissional: os emojis deram lugar a ícones de traço, todos no mesmo estilo',
-  'Metas com 40 opções de ícone: casa, carro, viagem, estudos, pet, academia, negócio e muito mais',
-  'Funciona nos temas claro e escuro',
-  'Metas e dívidas antigas continuam funcionando, com o ícone convertido sozinho',
+  'Escolha a aparência: modo Automático, Claro ou Escuro, em ⚙ → Aparência',
+  'Seis cores para o app: Verde, Azul, Roxo, Laranja, Rosa e Grafite',
+  'A aparência vale também na tela de bloqueio e é lembrada neste aparelho',
+  'Visual com ícones de traço e 40 opções de ícone nas metas',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [
