@@ -985,9 +985,6 @@ svg { display: block; }
 .view.enter > *:nth-child(3) { animation-delay: 0.06s; }
 .view.enter > *:nth-child(n+4) { animation-delay: 0.09s; }
 
-/* Cartões abaixo da dobra só são medidos e desenhados quando chegam perto da tela. */
-.view > .card:nth-child(n+5) { content-visibility: auto; contain-intrinsic-size: auto 220px; }
-
 /* Cartão de versão nova */
 .update-card {
   position: fixed;

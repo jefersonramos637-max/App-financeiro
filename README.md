@@ -25,6 +25,9 @@ instalado na tela inicial como um app e continua funcionando sem internet.
   a reforçar a próxima.
 - **Propostas de quitação**: registre o valor oferecido pelo banco, a validade e de onde veio. O app
   mostra o desconto em R$ e %, avalia a proposta e, ao aceitar, quita a dívida.
+- **Dívidas em atraso (negativadas)**: cadastre pelo valor total, sem parcelas nem vencimento. Elas não
+  entram no extrato nem nas contas a pagar, nunca são dadas como pagas sozinhas e recebem propostas de
+  desconto. O plano para quitar usa a melhor proposta de cada uma.
 - **Antecipar parcelas**: registre parcelas pagas adiantadas e o valor pago com desconto.
 - **Contas a pagar**: contas fixas, parcelas e gastos marcados como “ainda não paguei” aparecem na
   tela inicial até o próximo salário, com “✓ Paguei”, aviso de atrasadas e lembretes no calendário

@@ -1,12 +1,12 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.11.0';
+const VERSION = '1.12.0';
 const NOTES = [
-  'Troca de abas muito mais rápida e fluida, principalmente na tela Início',
-  'O toque responde na hora e as animações ficaram mais leves',
-  'Lista de contas a pagar mostra as 5 primeiras, com “ver todas” para o resto',
-  'A tela não dá mais zoom com pinça ou toque duplo',
+  'Dívidas em atraso (negativadas): valor único, sem parcelas, com as propostas de desconto do Serasa ou do banco',
+  'Mostra o desconto de cada proposta e quanto você economiza pagando à vista',
+  'O plano para quitar inclui as dívidas em atraso, pela melhor proposta',
+  'O código do assistente aceita dívidas em atraso e propostas',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [
