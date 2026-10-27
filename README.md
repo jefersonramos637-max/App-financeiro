@@ -54,7 +54,8 @@ instalado na tela inicial como um app e continua funcionando sem internet.
 - **Esconder valores**: o ícone de olho troca todos os valores por `R$ •••`.
 - **Pontos de restauração**: uma cópia automática por dia dos últimos 7 dias (IndexedDB).
 - **Backup**: salva pelo menu Compartilhar do iPhone (Arquivos, Drive, WhatsApp). Com PIN ativo,
-  o backup sai cifrado com o mesmo PIN. Lembrete quando passa de 30 dias sem backup.
+  o backup sai cifrado com o mesmo PIN. Lembrete todo dia na primeira abertura (com “Hoje não”),
+  com o passo a passo para salvar no iCloud Drive; dá para desligar e ficar só com o aviso de 30 dias.
 - **Planilha**: exporta tudo em CSV para Excel/Google Planilhas (sem proteção do PIN).
 - **Proteções**: política de segurança de conteúdo (CSP) que só permite código do próprio app,
   textos escapados antes de ir para a tela e proteção contra fórmulas maliciosas no CSV.

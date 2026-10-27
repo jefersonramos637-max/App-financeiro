@@ -121,7 +121,9 @@
 
   const LOCK_OPTIONS = [0, 60, 300];
   const MAX_CENTS = 1e11;
-  const defaultSettings = () => ({ hideValues: false, lockAfter: 60, lastBackupAt: 0, helpSeen: {}, debtExtra: 0, debtStrategy: '' });
+  const defaultSettings = () => ({
+    hideValues: false, lockAfter: 60, lastBackupAt: 0, helpSeen: {}, debtExtra: 0, debtStrategy: '', backupDaily: true, backupSnooze: '',
+  });
   const defaultState = () => ({
     version: 5, transactions: [], budgets: {}, goals: [], debts: [], cards: [], salary: null, demo: false, settings: defaultSettings(),
   });
@@ -142,6 +144,8 @@
       helpSeen: Object.fromEntries(HELP_TABS.filter((t) => rs.helpSeen && rs.helpSeen[t] === true).map((t) => [t, true])),
       debtExtra: Number.isInteger(rs.debtExtra) && rs.debtExtra >= 0 && rs.debtExtra <= MAX_CENTS ? rs.debtExtra : 0,
       debtStrategy: ['fast', 'interest'].includes(rs.debtStrategy) ? rs.debtStrategy : '',
+      backupDaily: rs.backupDaily !== false,
+      backupSnooze: isISO(rs.backupSnooze) ? rs.backupSnooze : '',
     };
     s.transactions = (Array.isArray(raw.transactions) ? raw.transactions : [])
       .filter((t) => t && CATEGORIES[t.type] && isPosInt(t.amount) && isISO(t.date))
@@ -973,15 +977,47 @@
     ].join('');
   }
 
-  function backupReminder() {
-    if (state.demo || state.transactions.length < 10) return '';
+  // Quando foi o último backup, em palavras.
+  function lastBackupText() {
     const last = state.settings.lastBackupAt;
-    const days = last ? Math.floor((Date.now() - last) / 864e5) : null;
-    if (days !== null && days < 30) return '';
-    return `<section class="card tip"><div class="tip-icon" aria-hidden="true">💾</div><div>
-      <p><strong>${days === null ? 'Você ainda não fez nenhum backup.' : `Seu último backup foi há ${days} dias.`}</strong>
-      Se o celular quebrar ou for trocado, é o backup que salva seus dados.</p>
-      <button class="link-btn" type="button" data-action="backup-now">Fazer backup agora</button></div></section>`;
+    if (!last) return 'nenhum ainda';
+    const d = new Date(last);
+    const days = daysUntil(todayISO()) - daysUntil(isoOf(d));
+    const hour = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    if (days === 0) return `hoje às ${hour} ✓`;
+    if (days === 1) return `ontem às ${hour}`;
+    return `há ${days} dias (${d.toLocaleDateString('pt-BR')})`;
+  }
+
+  // Lembrete diário: aparece na primeira abertura do dia até o backup ser feito (ou "Hoje não").
+  function backupReminder() {
+    const st = state.settings;
+    const hasData = state.transactions.length || state.debts.length || state.goals.length || state.cards.length;
+    if (state.demo || !hasData) return '';
+    const today = todayISO();
+    const last = st.lastBackupAt ? isoOf(new Date(st.lastBackupAt)) : '';
+    const days = last ? daysUntil(today) - daysUntil(last) : null;
+    if (last === today) return '';
+    // Com o lembrete diário desligado, ainda avisa depois de 30 dias sem backup.
+    if (!st.backupDaily && days !== null && days < 30) return '';
+    if (st.backupSnooze === today) return '';
+    const first = !st.lastBackupAt;
+    return `<section class="card backup-card">
+      <div class="backup-head"><div class="tip-icon" aria-hidden="true">💾</div><div>
+        <strong>${first ? 'Faça seu primeiro backup' : 'Backup de hoje'}</strong>
+        <span>Último backup: ${esc(lastBackupText())}</span></div></div>
+      ${first ? `<ol class="install-steps">
+        <li>Toque em <strong>Salvar backup</strong>.</li>
+        <li>Escolha <strong>Salvar em Arquivos</strong>.</li>
+        <li>Abra o <strong>iCloud Drive</strong>, crie a pasta <strong>Meu Bolso</strong> e toque em <strong>Salvar</strong>.</li>
+      </ol>
+      <p class="hint">Nas próximas vezes, o iPhone já sugere a mesma pasta, e o iCloud guarda tudo na nuvem sozinho.</p>`
+        : '<p class="hint">2 toques: Salvar backup → Salvar em Arquivos. Se o celular quebrar ou for trocado, é ele que salva seus dados.</p>'}
+      <div class="backup-actions">
+        <button class="btn" type="button" data-action="backup-snooze">Hoje não</button>
+        <button class="btn primary" type="button" data-action="backup-now">💾 Salvar backup</button>
+      </div>
+    </section>`;
   }
 
   function welcome() {
@@ -2915,7 +2951,6 @@
   function openSettings() {
     const empty = !state.transactions.length && !state.goals.length && !state.debts.length && !state.salary;
     const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
-    const last = state.settings.lastBackupAt;
     const lockOpt = (v, label) => `<option value="${v}"${state.settings.lockAfter === v ? ' selected' : ''}>${label}</option>`;
     const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">Configurações</h2>
       ${standalone ? '' : `<p class="eyebrow settings-section">Instalar no celular</p>
@@ -2952,8 +2987,10 @@
       </div>
 
       <p class="eyebrow settings-section">Backup</p>
-      <p class="hint" style="margin-bottom:8px">Último backup: <strong>${last ? new Date(last).toLocaleDateString('pt-BR') : 'nenhum ainda'}</strong>.
-        Salve no Arquivos, Drive ou numa conversa sua no WhatsApp.${cryptoKey ? ' O backup sai protegido com o seu PIN.' : ''}</p>
+      <p class="hint" style="margin-bottom:8px">Último backup: <strong>${esc(lastBackupText())}</strong>.
+        No iPhone, escolha “Salvar em Arquivos” → iCloud Drive: o iCloud guarda na nuvem sozinho.${cryptoKey ? ' O backup sai protegido com o seu PIN.' : ''}</p>
+      <label class="check" style="margin-bottom:8px"><input type="checkbox" id="backupDaily"${state.settings.backupDaily ? ' checked' : ''}>
+        <span>Lembrar todo dia de fazer backup</span></label>
       <div class="settings-list">
         <button class="btn" type="button" id="exportBtn">💾 Salvar backup</button>
         <button class="btn" type="button" id="copyBtn">📋 Copiar backup</button>
@@ -3008,6 +3045,11 @@
     on('changePin', () => openPinSheet('change'));
     on('removePin', () => openPinSheet('remove'));
     on('lockNow', () => lock());
+    $('#backupDaily', root).addEventListener('change', (e) => {
+      state.settings.backupDaily = e.target.checked;
+      save();
+      render();
+    });
     const lockAfter = $('#lockAfter', root);
     if (lockAfter) {
       lockAfter.addEventListener('change', () => {
@@ -3543,6 +3585,11 @@
       render();
     } else if (action === 'backup-now') {
       exportBackup();
+    } else if (action === 'backup-snooze') {
+      state.settings.backupSnooze = todayISO();
+      save();
+      render();
+      toast('Tudo bem. Amanhã eu lembro de novo.');
     } else if (action === 'clear-demo') {
       state = { ...defaultState(), settings: state.settings };
       save();

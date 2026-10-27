@@ -925,6 +925,14 @@ svg { display: block; }
 .inv-item > span:first-child { color: var(--muted); font-size: 0.8rem; }
 #payChips .chip { font-size: 0.82rem; }
 
+/* Lembrete de backup */
+.backup-card { display: flex; flex-direction: column; gap: 10px; border-color: var(--accent); }
+.backup-head { display: flex; gap: 12px; align-items: center; }
+.backup-head strong { display: block; font-size: 1rem; }
+.backup-head span { display: block; font-size: 0.82rem; color: var(--muted); }
+.backup-card .hint { margin: 0; }
+.backup-actions { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+
 /* Explicação de cada aba */
 .help {
   display: flex;

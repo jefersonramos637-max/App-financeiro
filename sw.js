@@ -1,13 +1,11 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.8.1';
+const VERSION = '1.9.0';
 const NOTES = [
-  'Ao cadastrar o cartão, informe a fatura que já está aberta e o app lança na fatura certa',
-  'Cartões de crédito: cadastre o dia de fechamento, o vencimento e o limite',
-  'Compra no cartão entra na fatura certa e o dinheiro só sai no vencimento',
-  'Veja cada fatura, o limite disponível e marque a fatura como paga',
-  'Contas a pagar: o que vence até o próximo salário, com “✓ Paguei” e lembretes no calendário',
+  'Lembrete de backup todo dia: 2 toques e o iCloud guarda na nuvem sozinho',
+  'Mostra quando foi o último backup (ex.: “hoje às 09:00 ✓”)',
+  'Ao cadastrar o cartão, informe a fatura que já está aberta',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [
