@@ -1,9 +1,10 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.19.1';
+const VERSION = '1.20.0';
 const NOTES = [
-  'Removido o botão "Falar com a IA" da aba Dívidas',
+  'Nova "Ordem para pagar" na aba Dívidas: 1º, 2º, 3º... com o valor de cada uma e o mês em que fica quitada',
+  'O app calcula a sobra por quinzena a partir do seu salário e das suas contas, e usa no plano',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [

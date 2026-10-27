@@ -896,8 +896,10 @@ svg { display: block; }
 .plan-steps small { display: block; color: var(--text-2); }
 .plan-steps b { color: var(--income); }
 .plan-n {
-  width: 28px;
+  min-width: 28px;
   height: 28px;
+  padding: 0 4px;
+  border-radius: 14px;
   flex-shrink: 0;
   border-radius: 50%;
   display: grid;

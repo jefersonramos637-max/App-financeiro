@@ -2029,12 +2029,29 @@
         <button type="button" data-value="interest" class="${strategy === 'interest' ? 'active' : ''}">💸 Maior juros primeiro</button>
       </div>
       ${anyRate ? '' : '<p class="hint">💡 Sabe os juros de cada dívida? Coloque em Editar → “Juros ao mês”. Com eles, o app consegue mostrar onde você economiza mais.</p>'}` : ''}
+      <div id="planEstimate"></div>
       <div id="planResult" aria-live="polite"></div>
     </section>`;
   }
 
   // Valor extra já convertido para mês (quinzena = 2 por mês).
-  const extraMonthly = () => (state.settings.debtExtra || 0) * (state.settings.debtExtraPer === 'fortnight' ? 2 : 1);
+  // Sobra estimada: salário do mês menos as contas dos próximos 30 dias (faturas e parcelas inclusas).
+  function leftoverEstimate() {
+    const pays = state.salary && state.salary.paydays;
+    if (!pays || !pays.length) return null;
+    const income = sum(pays.map((p) => p.amount || 0));
+    if (income <= 0) return null;
+    const until = new Date(parseISO(todayISO()).getTime() + 30 * 864e5).toISOString().slice(0, 10);
+    const bills = sum(pendingBills(until).map((b) => b.amount));
+    const left = Math.max(0, income - bills);
+    return { income, bills, left, perFortnight: Math.round(left / pays.length), n: pays.length };
+  }
+  const extraMonthly = () => {
+    const own = (state.settings.debtExtra || 0) * (state.settings.debtExtraPer === 'fortnight' ? 2 : 1);
+    if (own > 0) return own;
+    const est = leftoverEstimate();
+    return est ? est.left : 0;
+  };
 
   // Conselheiro: passos práticos tirados dos dados que já estão no app.
   function adviceHtml(plan, extra) {
@@ -2072,6 +2089,20 @@
     const extra = extraMonthly();
     const strategy = planStrategy();
     const plan = payoffPlan(extra, strategy);
+    const est = leftoverEstimate();
+    const estBox = $('#planEstimate');
+    if (estBox) {
+      estBox.innerHTML = est ? `<p class="hint">💡 Pelo seu salário (<strong>${money(est.income)}</strong> por mês) menos as contas dos próximos 30 dias (<strong>${money(est.bills)}</strong>), sobram uns <strong>${money(est.perFortnight)} por quinzena</strong>.${state.settings.debtExtra > 0 ? '' : ' Estou usando esse valor no plano enquanto você não digitar outro.'}</p>
+        <div class="chips"><button class="chip" type="button" id="useEstimate">Usar ${money(est.perFortnight)} por quinzena</button></div>` : '';
+      const ub = $('#useEstimate');
+      if (ub) ub.onclick = () => {
+        const inp = $('#planExtra');
+        state.settings.debtExtraPer = 'fortnight';
+        $$('#planPer button').forEach((x) => x.classList.toggle('active', x.dataset.value === 'fortnight'));
+        inp.value = String(est.perFortnight);
+        inp.dispatchEvent(new Event('input'));
+      };
+    }
     const label = $('#planExtraLabel');
     if (label) label.textContent = state.settings.debtExtraPer === 'fortnight' ? 'Quanto sobra a cada quinzena para as dívidas?' : 'Quanto sobra por mês para as dívidas?';
     if (!plan.items.length) {
@@ -2097,12 +2128,17 @@
           ? `<p>Separe <strong class="num">${money(extra)}</strong> por mês. Quando juntar <strong class="num">${money(first.need)}</strong>, pague ${bestOffer(first.d) ? 'a proposta' : 'a dívida'} à vista.</p>`
           : `<p>Todo mês: pague as parcelas normais e use <strong class="num">${money(extra)}</strong> para <strong>antecipar parcelas</strong> desta dívida (botão ⏩ Antecipar).</p>`) : ''}
       </div>
-      <p class="plan-label">Quando cada dívida acaba:</p>
-      <ol class="plan-steps">${plan.items.slice().sort((a, b) => (a.end && b.end ? (a.end < b.end ? -1 : 1) : a.end ? -1 : b.end ? 1 : 0)).map((x, k) => {
+      <p class="plan-label">📋 Ordem para pagar:</p>
+      <ol class="plan-steps">${plan.items.map((x, k) => {
         const diff = x.end && x.baseEnd ? monthsBetween(x.end, x.baseEnd) : 0;
         const ob = x.d.overdue ? bestOffer(x.d) : null;
-        return `<li><span class="plan-n">${k + 1}</span><div><strong>${esc(x.d.name)}</strong>
-          <small>${x.end ? `Quitada em ${esc(monthYear(x.end))}` : 'Sem previsão: informe um valor extra por mês acima'}${diff > 0 ? ` · <b>${diff} ${diff === 1 ? 'mês' : 'meses'} antes</b>` : ''}${ob ? ` · com proposta de ${money(ob.value)}` : ''}</small></div></li>`;
+        const need = x.d.overdue ? payNow(x.d) : x.inst;
+        const what = x.d.overdue
+          ? `Pague <b>${money(need)}</b> à vista${ob ? ` (proposta, ${offerPct(ob)}% de desconto)` : ''}`
+          : `Parcela de <b>${money(x.inst)}</b> por mês${extra ? ' + antecipar com a sobra' : ''}`;
+        return `<li><span class="plan-n">${k + 1}º</span><div><strong>${esc(x.d.name)}</strong>
+          <small>${what}</small>
+          <small>${x.end ? `Fica quitada em ${esc(monthYear(x.end))}` : 'Sem previsão: falta informar quanto sobra'}${diff > 0 ? ` · <b>${diff} ${diff === 1 ? 'mês' : 'meses'} antes</b>` : ''}</small></div></li>`;
       }).join('')}</ol>
       <div class="plan-free">${plan.freeYM
         ? `🏁 Livre de todas as dívidas em <strong>${esc(monthYear(plan.freeYM))}</strong>${plan.saved > 0
