@@ -372,7 +372,7 @@
   const LOCK_OPTIONS = [0, 60, 300];
   const MAX_CENTS = 1e11;
   const defaultSettings = () => ({
-    hideValues: false, lockAfter: 60, lastBackupAt: 0, helpSeen: {}, debtExtra: 0, debtStrategy: '', backupDaily: true, backupSnooze: '', goalRate: 10,
+    hideValues: false, lockAfter: 60, lastBackupAt: 0, helpSeen: {}, debtExtra: 0, debtExtraPer: 'month', debtStrategy: '', backupDaily: true, backupSnooze: '', goalRate: 10,
   });
   const defaultState = () => ({
     version: 5, transactions: [], budgets: {}, goals: [], debts: [], cards: [], salary: null, demo: false, settings: defaultSettings(),
@@ -393,6 +393,7 @@
       lastBackupAt: Number.isFinite(rs.lastBackupAt) ? rs.lastBackupAt : 0,
       helpSeen: Object.fromEntries(HELP_TABS.filter((t) => rs.helpSeen && rs.helpSeen[t] === true).map((t) => [t, true])),
       debtExtra: Number.isInteger(rs.debtExtra) && rs.debtExtra >= 0 && rs.debtExtra <= MAX_CENTS ? rs.debtExtra : 0,
+      debtExtraPer: rs.debtExtraPer === 'fortnight' ? 'fortnight' : 'month',
       debtStrategy: ['fast', 'interest'].includes(rs.debtStrategy) ? rs.debtStrategy : '',
       goalRate: Number.isFinite(rs.goalRate) && rs.goalRate >= 0 && rs.goalRate <= 30 ? Math.round(rs.goalRate * 100) / 100 : 10,
       backupDaily: rs.backupDaily !== false,
@@ -2016,9 +2017,13 @@
     return `<section class="card plan">
       <div><h2 class="card-title">🎯 Plano para quitar</h2>
         <p class="card-sub">O app escolhe por onde começar e calcula quando você fica livre</p></div>
-      <div class="field"><label for="planExtra">Quanto a mais por mês você consegue colocar nas dívidas?</label>
+      <div class="segmented" id="planPer">
+        <button type="button" data-value="fortnight" class="${state.settings.debtExtraPer === 'fortnight' ? 'active' : ''}">A cada quinzena</button>
+        <button type="button" data-value="month" class="${state.settings.debtExtraPer === 'month' ? 'active' : ''}">Por mês</button>
+      </div>
+      <div class="field"><label for="planExtra" id="planExtraLabel"></label>
         <input id="planExtra" class="money" inputmode="numeric" autocomplete="off"></div>
-      <div class="chips" id="planChips">${[5000, 10000, 20000, 50000].map((c) => `<button class="chip" type="button" data-cents="${c}">${fmtMoney(c).replace(',00', '')}</button>`).join('')}</div>
+      <div class="chips" id="planChips">${[2500, 5000, 10000, 20000].map((c) => `<button class="chip" type="button" data-cents="${c}">${fmtMoney(c).replace(',00', '')}</button>`).join('')}</div>
       ${active.length > 1 ? `<div class="segmented" id="planStrategy">
         <button type="button" data-value="fast" class="${strategy === 'fast' ? 'active' : ''}">⚡ Menor dívida primeiro</button>
         <button type="button" data-value="interest" class="${strategy === 'interest' ? 'active' : ''}">💸 Maior juros primeiro</button>
@@ -2028,12 +2033,47 @@
     </section>`;
   }
 
+  // Valor extra já convertido para mês (quinzena = 2 por mês).
+  const extraMonthly = () => (state.settings.debtExtra || 0) * (state.settings.debtExtraPer === 'fortnight' ? 2 : 1);
+
+  // Conselheiro: passos práticos tirados dos dados que já estão no app.
+  function adviceHtml(plan, extra) {
+    const steps = [];
+    const today = todayISO();
+    for (const c of state.cards) {
+      const inv = currentInvoice(c);
+      if (!inv.paid && inv.total > 0) {
+        steps.push(`Pague a fatura do <strong>${esc(c.name)}</strong> (<strong>${money(inv.total)}</strong>) <strong>inteira</strong> até ${shortDate(inv.due)}. O rotativo do cartão é o juro mais caro que existe: nunca pague só o mínimo.`);
+      }
+    }
+    const monthBills = sum(plan.items.filter((x) => !x.d.overdue).map((x) => x.inst));
+    if (monthBills) steps.push(`Mantenha as parcelas em dia: <strong>${money(monthBills)}</strong> por mês. Atrasar só cria multa e juros novos.`);
+    const late = plan.items.filter((x) => x.d.overdue);
+    const noOffer = late.filter((x) => !bestOffer(x.d));
+    if (noOffer.length) steps.push(`Peça proposta de desconto em: <strong>${noOffer.map((x) => esc(x.d.name)).join(', ')}</strong>. Veja no Serasa ou no app do banco e cadastre em “💬 Proposta”. Não pague a primeira oferta: elas costumam melhorar com o tempo.`);
+    const withOffer = late.filter((x) => bestOffer(x.d));
+    if (withOffer.length) steps.push(`Dívidas com proposta: pague <strong>uma por vez</strong>, à vista, e guarde o comprovante. Depois de pagar, confira se o nome foi limpo em até 5 dias úteis.`);
+    if (!extra) steps.push('Veja quanto sobra a cada quinzena depois das contas e coloque acima. Com esse número eu calculo o mês em que você fica livre.');
+    else steps.push(`Todo pagamento de salário, <strong>separe ${money(Math.round(extra / ((state.salary && state.salary.paydays.length) || 2)))}</strong> para as dívidas antes de gastar com qualquer outra coisa. Dinheiro que sobra no fim da quinzena costuma sumir.`);
+    steps.push('Enquanto estiver quitando, guarde pelo menos <strong>R$ 200 a R$ 500</strong> numa reserva mínima (Metas → “Reserva de emergência”). Sem ela, um imprevisto vira dívida nova.');
+    let after = '';
+    if (extra && plan.freeYM) {
+      const r = Math.pow(1 + (state.settings.goalRate || 10) / 100, 1 / 12) - 1;
+      const fv = (m) => Math.round(extra * ((Math.pow(1 + r, m) - 1) / r));
+      after = `<div class="plan-offer">🌱 <strong>Depois de ${esc(monthYear(plan.freeYM))}</strong>, esses ${money(extra)} por mês passam a ser seus. Guardando todo mês em Tesouro Selic ou CDB com liquidez diária (cerca de ${state.settings.goalRate || 10}% ao ano), em 12 meses você junta <strong>${money(fv(12))}</strong> e em 24 meses <strong>${money(fv(24))}</strong>.</div>`;
+    }
+    return `<div class="advice"><p class="plan-label">🧭 Seu passo a passo</p>
+      <ol class="plan-steps">${steps.map((s, k) => `<li><span class="plan-n">${k + 1}</span><div>${s}</div></li>`).join('')}</ol>${after}</div>`;
+  }
+
   function renderPlanResult() {
     const box = $('#planResult');
     if (!box) return;
-    const extra = state.settings.debtExtra || 0;
+    const extra = extraMonthly();
     const strategy = planStrategy();
     const plan = payoffPlan(extra, strategy);
+    const label = $('#planExtraLabel');
+    if (label) label.textContent = state.settings.debtExtraPer === 'fortnight' ? 'Quanto sobra a cada quinzena para as dívidas?' : 'Quanto sobra por mês para as dívidas?';
     if (!plan.items.length) {
       box.innerHTML = '';
       return;
@@ -2069,6 +2109,7 @@
           ? `: <b>${plan.saved} ${plan.saved === 1 ? 'mês' : 'meses'} antes</b> do previsto (${esc(monthYear(plan.baseYM))}) 🎉` : ''}`
         : '🏁 Coloque um valor a mais por mês acima para ver quando você fica livre das dívidas.'}</div>
       ${offer ? `<p class="plan-offer">💬 <strong>${esc(offer.d.name)}</strong> tem proposta de quitação com <strong>${offerPct(offer.o)}% de desconto</strong>. Se você tiver o dinheiro à vista, pode valer mais a pena começar por ela.</p>` : ''}
+      ${adviceHtml(plan, extra)}
       <p class="hint">Quando uma dívida acaba, o valor da parcela dela vai para a próxima da lista. Na vida real, antecipar costuma dar desconto de juros, então você termina antes ou pagando menos que o cálculo.</p>`;
   }
 
@@ -2089,6 +2130,15 @@
       if (!b) return;
       input.value = b.dataset.cents;
       input.dispatchEvent(new Event('input'));
+    });
+    const per = $('#planPer');
+    per.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      state.settings.debtExtraPer = b.dataset.value;
+      $$('button', per).forEach((x) => x.classList.toggle('active', x === b));
+      save();
+      renderPlanResult();
     });
     const seg = $('#planStrategy');
     if (seg) {

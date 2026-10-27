@@ -129,3 +129,7 @@ E abra `http://localhost:8000`.
 | `sw.js` | Funcionamento offline e versão do app. Ao publicar mudanças, aumente `VERSION` e escreva as novidades em `NOTES`: o celular mostra o aviso de atualização com essa lista |
 | `manifest.webmanifest` | Nome, cor e ícones para instalar como app |
 | `icons/` | Ícones do app |
+
+
+## Conselheiro (aba Dívidas)
+O plano para quitar agora mostra um passo a passo (fatura do cartão, parcelas, propostas, reserva mínima) e, depois da última dívida, quanto o mesmo valor rende guardado todo mês. O valor que sobra pode ser informado por quinzena ou por mês.
