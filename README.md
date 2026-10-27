@@ -15,10 +15,25 @@ instalado na tela inicial como um app e continua funcionando sem internet.
 - **Metas**: quanto guardar por mês para chegar no objetivo até o prazo, e o tamanho ideal da
   reserva de emergência com base no seu custo de vida.
 - **Gráficos**: para onde foi o dinheiro e os últimos 6 meses.
-- **Backup**: baixar, copiar e restaurar os dados em um arquivo `.json`.
+- **Desfazer**: ao excluir um lançamento ou meta, dá para desfazer na hora.
+- **Gestos**: arraste para os lados para trocar de mês e o painel para baixo para fechar.
 
-Os dados ficam só no aparelho (no armazenamento do navegador). Nada é enviado para servidor.
-Faça backup de vez em quando pela engrenagem ⚙ no topo.
+## Segurança e dados
+
+- **PIN com criptografia**: com o PIN ativo, os dados ficam gravados cifrados (AES-GCM de 256 bits,
+  chave derivada do PIN com PBKDF2-SHA256, 600 mil iterações). A chave só existe na memória
+  enquanto o app está aberto. Bloqueio automático ao sair do app (na hora, 1 ou 5 minutos)
+  e espera crescente depois de 5 PINs errados.
+  Se esquecer o PIN, não há como recuperar os dados: mantenha um backup.
+- **Esconder valores**: o ícone de olho troca todos os valores por `R$ •••`.
+- **Pontos de restauração**: uma cópia automática por dia dos últimos 7 dias (IndexedDB).
+- **Backup**: salva pelo menu Compartilhar do iPhone (Arquivos, Drive, WhatsApp). Com PIN ativo,
+  o backup sai cifrado com o mesmo PIN. Lembrete quando passa de 30 dias sem backup.
+- **Planilha**: exporta tudo em CSV para Excel/Google Planilhas (sem proteção do PIN).
+- **Proteções**: política de segurança de conteúdo (CSP) que só permite código do próprio app,
+  textos escapados antes de ir para a tela e proteção contra fórmulas maliciosas no CSV.
+
+Os dados ficam só no aparelho. Nada é enviado para servidor.
 
 ## Como colocar no celular
 
@@ -53,6 +68,6 @@ E abra `http://localhost:8000`.
 | `index.html` | Estrutura das telas |
 | `styles.css` | Visual (tema claro e escuro automáticos) |
 | `app.js` | Toda a lógica: lançamentos, orçamento, metas, gráficos, backup |
-| `sw.js` | Funcionamento offline. Ao alterar o app, aumente `CACHE` (ex.: `meubolso-v2`) |
+| `sw.js` | Funcionamento offline. Ao alterar o app, aumente `CACHE` (ex.: `meubolso-v3`) para o celular oferecer a atualização |
 | `manifest.webmanifest` | Nome, cor e ícones para instalar como app |
 | `icons/` | Ícones do app |

@@ -1,6 +1,6 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente a versão para os celulares baixarem a nova.
-const CACHE = 'meubolso-v1';
+const CACHE = 'meubolso-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -14,8 +14,16 @@ const ASSETS = [
   './icons/apple-touch-icon.png',
 ];
 
+// Baixa sempre a versão nova dos arquivos (sem passar pelo cache HTTP).
+// A versão nova só assume quando a pessoa toca em "Atualizar" no app.
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
+  event.waitUntil(
+    caches.open(CACHE).then((cache) => cache.addAll(ASSETS.map((url) => new Request(url, { cache: 'reload' })))),
+  );
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data === 'skipWaiting') self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
