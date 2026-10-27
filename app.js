@@ -1026,7 +1026,8 @@
       <h2>Bem-vindo ao Meu Bolso</h2>
       <p>Comece pelo seu salário. Depois registre cada gasto e o app mostra quanto você ainda pode gastar por dia até o próximo pagamento.</p>
       <div class="actions">
-        <button class="btn primary block" type="button" data-action="salary">💼 Configurar meu salário</button>
+        <button class="btn primary block" type="button" data-action="setup-code">📥 Colar código do assistente</button>
+        <button class="btn block" type="button" data-action="salary">💼 Configurar meu salário</button>
         <button class="btn block" type="button" data-action="new-debt">Cadastrar uma dívida</button>
         <button class="btn block" type="button" data-action="load-demo">Ver com dados de exemplo</button>
       </div>
@@ -1535,18 +1536,7 @@
         const c = { id: uid(), paid: [], createdAt: Date.now(), ...data };
         state.cards.push(c);
         const open = openAmt ? centsOf(openAmt) : 0;
-        if (open) {
-          // A fatura em aberto é a que vence primeiro a partir de hoje (já fechada ou ainda aberta).
-          const today = todayISO();
-          let invDue = invoiceDue(c, today, -1);
-          if (invDue < today) invDue = invoiceDue(c, today, 0);
-          const close = closingOf(c, invDue);
-          const buy = today < close ? today : isoOf(new Date(parseISO(close).getTime() - 864e5));
-          state.transactions.push({
-            id: uid(), type: 'expense', category: 'outros', amount: open, description: 'Fatura em aberto (compras anteriores)',
-            cardId: c.id, buyDate: buy, cardOffset: 0, date: invoiceDue(c, buy, 0), createdAt: Date.now(),
-          });
-        }
+        if (open) addOpenInvoice(c, open);
       } else {
         Object.assign(card, data);
         recomputeCardTx(card);
@@ -2960,6 +2950,10 @@
         <li><strong>Android (Chrome):</strong> menu ⋮ → “Instalar app” ou “Adicionar à tela inicial”.</li>
       </ol>`}
 
+      <div class="settings-list">
+        <button class="btn primary" type="button" id="setupBtn">📥 Colar código do assistente</button>
+      </div>
+
       <p class="eyebrow settings-section">Meu salário</p>
       <div class="settings-list">
         <button class="btn" type="button" id="salaryBtn">💼 ${state.salary ? `Recebo nos ${esc(salaryLabel())} · Editar` : 'Configurar meu salário'}</button>
@@ -3034,6 +3028,7 @@
     // Segurança
     const on = (id, fn) => { const el = $(`#${id}`, root); if (el) el.addEventListener('click', fn); };
     on('salaryBtn', openSalarySheet);
+    on('setupBtn', openSetupSheet);
     on('addCard', () => openCardSheet());
     $$('[data-card-edit]', root).forEach((b) => b.addEventListener('click', () => openCardSheet(cardById(b.dataset.cardEdit))));
     on('checkUpdate', () => {
@@ -3265,6 +3260,155 @@
         btn.textContent = mode === 'remove' ? 'Remover PIN' : 'Salvar PIN';
       }
     });
+  }
+
+  // ---------- Código do assistente ----------
+  // Texto em JSON que o assistente monta com o que a pessoa contou no chat.
+  // Só adiciona ou atualiza dados; nunca apaga nada. Tudo passa pela mesma validação do app.
+
+  const OPEN_INVOICE_DESC = 'Fatura em aberto (compras anteriores)';
+
+  // Lança o valor da fatura que já estava aberta como uma compra só, na fatura que vence primeiro a partir de hoje.
+  function addOpenInvoice(c, amount) {
+    const today = todayISO();
+    let invDue = invoiceDue(c, today, -1);
+    if (invDue < today) invDue = invoiceDue(c, today, 0);
+    const close = closingOf(c, invDue);
+    const buy = today < close ? today : isoOf(new Date(parseISO(close).getTime() - 864e5));
+    state.transactions.push({
+      id: uid(), type: 'expense', category: 'outros', amount, description: OPEN_INVOICE_DESC,
+      cardId: c.id, buyDate: buy, cardOffset: 0, date: invoiceDue(c, buy, 0), createdAt: Date.now(),
+    });
+  }
+
+  function parseSetupCode(text) {
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    const o = start >= 0 && end > start ? parseJSON(text.slice(start, end + 1)) : null;
+    if (!o || o.meubolso !== 'add') throw new Error('código inválido');
+    const int = (v, min, max) => (Number.isInteger(v) && v >= min && v <= max ? v : null);
+    const str = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+    const items = [];
+    for (const c of (Array.isArray(o.cards) ? o.cards : []).slice(0, 5)) {
+      const name = str(c && c.name, 30);
+      const dueDay = int(c && c.dueDay, 1, 31);
+      const closingDay = int(c && c.closingDay, 1, 31) || (dueDay ? ((dueDay - 8 + 31) % 31) + 1 : null);
+      if (!name || !dueDay || closingDay === dueDay) continue;
+      items.push({ kind: 'card', name, dueDay, closingDay, limit: int(c.limit, 0, MAX_CENTS) || 0, openInvoice: int(c.openInvoice, 0, MAX_CENTS) || 0 });
+    }
+    if (o.salary && Array.isArray(o.salary.paydays)) {
+      const paydays = o.salary.paydays.slice(0, 2)
+        .map((p) => ({ day: int(p && p.day, 1, 31), amount: int(p && p.amount, 0, MAX_CENTS) || 0 }))
+        .filter((p) => p.day).sort((a, b) => a.day - b.day);
+      if (paydays.length) items.push({ kind: 'salary', paydays, weekendBefore: o.salary.weekendBefore !== false, includePast: !!o.salary.includePast });
+    }
+    for (const d of (Array.isArray(o.debts) ? o.debts : []).slice(0, 20)) {
+      const name = str(d && d.name, 40);
+      const amount = int(d && d.amount, 1, MAX_CENTS);
+      const total = int(d && d.total, 1, 600);
+      if (!name || !amount || !total || !isISO(d.nextDue)) continue;
+      const rate = Number.isFinite(d.rate) && d.rate > 0 && d.rate <= 30 ? Math.round(d.rate * 100) / 100 : null;
+      items.push({
+        kind: 'debt', name, amount, total, paid: Math.min(int(d.paid, 0, 600) || 0, total), nextDue: d.nextDue, rate,
+        icon: DEBT_TYPES.some((t) => t.icon === d.icon) ? d.icon : DEBT_TYPES[0].icon,
+      });
+    }
+    for (const b of (Array.isArray(o.bills) ? o.bills : []).slice(0, 30)) {
+      const name = str(b && b.name, 60);
+      const amount = int(b && b.amount, 1, MAX_CENTS);
+      const day = int(b && b.day, 1, 31);
+      if (!name || !amount || !day) continue;
+      items.push({ kind: 'bill', name, amount, day, category: CATEGORIES.expense.some((c) => c.id === b.category) ? b.category : 'contas' });
+    }
+    if (!items.length) throw new Error('nada para adicionar');
+    return items;
+  }
+
+  function describeSetupItem(it) {
+    if (it.kind === 'card') {
+      const exists = state.cards.some((c) => c.name.toLowerCase() === it.name.toLowerCase());
+      return `💳 <strong>${esc(it.name)}</strong>${exists ? ' (atualizar)' : ''}: fecha dia ${it.closingDay}, vence dia ${it.dueDay}${it.limit ? `, limite ${fmtMoney(it.limit)}` : ''}${it.openInvoice ? `<br>Fatura em aberto: <strong>${fmtMoney(it.openInvoice)}</strong>` : ''}`;
+    }
+    if (it.kind === 'salary') return `💼 <strong>Salário</strong>: ${it.paydays.map((p) => `dia ${p.day}${p.amount ? ` (${fmtMoney(p.amount)})` : ''}`).join(' e ')}`;
+    if (it.kind === 'debt') return `${it.icon} <strong>${esc(it.name)}</strong>: ${it.total} parcelas de ${fmtMoney(it.amount)}, ${it.paid} pagas, próxima em ${shortDate(it.nextDue)}`;
+    return `📅 <strong>${esc(it.name)}</strong>: ${fmtMoney(it.amount)} todo mês, dia ${it.day}`;
+  }
+
+  function applySetup(items) {
+    const today = todayISO();
+    for (const it of items) {
+      if (it.kind === 'card') {
+        let c = state.cards.find((x) => x.name.toLowerCase() === it.name.toLowerCase());
+        if (c) {
+          Object.assign(c, { name: it.name, closingDay: it.closingDay, dueDay: it.dueDay, limit: it.limit || c.limit });
+          recomputeCardTx(c);
+        } else {
+          c = { id: uid(), name: it.name, closingDay: it.closingDay, dueDay: it.dueDay, limit: it.limit, paid: [], createdAt: Date.now() };
+          state.cards.push(c);
+        }
+        // Colar o mesmo código duas vezes não duplica a fatura.
+        if (it.openInvoice && !state.transactions.some((t) => t.cardId === c.id && t.description === OPEN_INVOICE_DESC)) addOpenInvoice(c, it.openInvoice);
+      } else if (it.kind === 'salary') {
+        state.salary = { paydays: it.paydays, weekendBefore: it.weekendBefore, generatedUntil: '', startYM: state.salary ? state.salary.startYM : currentMonth() };
+        rebuildSalary(it.includePast);
+      } else if (it.kind === 'debt') {
+        let d = state.debts.find((x) => x.name.toLowerCase() === it.name.toLowerCase());
+        const data = { name: it.name, icon: it.icon, amount: it.amount, total: it.total, paid: it.paid, rate: it.rate, nextDue: it.nextDue, dueDay: Number(it.nextDue.slice(8, 10)) };
+        if (d) Object.assign(d, data);
+        else {
+          d = { id: uid(), createdAt: Date.now(), advanced: 0, offers: [], linked: true, ...data };
+          state.debts.push(d);
+        }
+        syncDebtTx(d);
+      } else if (it.kind === 'bill') {
+        if (state.transactions.some((t) => t.recurring && t.description.toLowerCase() === it.name.toLowerCase() && t.date >= today)) continue;
+        const thisMonth = dueIn(currentMonth(), it.day);
+        const first = thisMonth >= today ? thisMonth : dueIn(shiftMonth(currentMonth(), 1), it.day);
+        const groupId = uid();
+        for (let i = 0; i < 12; i++) {
+          state.transactions.push({
+            id: uid(), type: 'expense', amount: it.amount, description: it.name, category: it.category, groupId, recurring: true,
+            date: dueIn(shiftMonth(monthOf(first), i), it.day), createdAt: Date.now() + i,
+          });
+        }
+      }
+    }
+    advanceDebts();
+  }
+
+  function openSetupSheet() {
+    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">📥 Código do assistente</h2>
+      <p class="hint">Cole aqui o código que o assistente te mandou no chat. Ele só adiciona ou atualiza dados; nada é apagado.</p>
+      <textarea id="setupCode" class="backup-text" placeholder="Toque e segure aqui, depois escolha Colar" aria-label="Código do assistente"></textarea>
+      <div class="actions" style="margin-top:10px">
+        <button class="btn primary block" type="button" id="readSetup">Ler código</button>
+      </div>
+      <div id="setupSlot"></div>`);
+    $('#readSetup', root).addEventListener('click', () => {
+      let items;
+      try {
+        items = parseSetupCode($('#setupCode', root).value);
+      } catch {
+        toast('Não reconheci esse código. Copie de novo o código inteiro do chat.');
+        return;
+      }
+      $('#setupSlot', root).innerHTML = `<div class="debt-preview" style="margin-top:12px">
+          <p><strong>Vou adicionar:</strong></p>${items.map((it) => `<p>${describeSetupItem(it)}</p>`).join('')}</div>
+        <div class="actions" style="margin-top:10px">
+          <button class="btn primary block" type="button" id="applySetup">✓ Adicionar ao app</button>
+        </div>`;
+      $('#applySetup', root).addEventListener('click', () => {
+        applySetup(items);
+        save();
+        closeSheet();
+        ui.tab = 'home';
+        ui.month = currentMonth();
+        render();
+        window.scrollTo(0, 0);
+        toast('Pronto! Dados adicionados ✓');
+      });
+    });
+    $('#setupCode', root).focus();
   }
 
   // ---------- Tela de bloqueio ----------
@@ -3552,6 +3696,8 @@
       openBillsSheet();
     } else if (action === 'bills-calendar') {
       exportBillsCalendar();
+    } else if (action === 'setup-code') {
+      openSetupSheet();
     } else if (action === 'salary') {
       openSalarySheet();
     } else if (action === 'new-debt') {

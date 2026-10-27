@@ -44,6 +44,18 @@ instalado na tela inicial como um app e continua funcionando sem internet.
   uma tela mostra o progresso e, no fim, as novidades com confete. Puxe a tela para baixo para
   procurar atualização a qualquer momento.
 
+## Código do assistente
+
+Em ⚙ → “Colar código do assistente”, o app aceita um texto em JSON com dados para adicionar ou
+atualizar (cartões com fatura em aberto, salário, dívidas e contas fixas). Nada é apagado, colar o
+mesmo código de novo não duplica, e tudo passa pela mesma validação do app. Exemplo:
+
+```json
+{"meubolso":"add","cards":[{"name":"Nubank","dueDay":15,"closingDay":8,"limit":20000,"openInvoice":19752}]}
+```
+
+Valores em centavos; datas no formato AAAA-MM-DD.
+
 ## Segurança e dados
 
 - **PIN com criptografia**: com o PIN ativo, os dados ficam gravados cifrados (AES-GCM de 256 bits,
