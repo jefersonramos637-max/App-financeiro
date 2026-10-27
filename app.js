@@ -601,7 +601,7 @@
   }
 
   // Liga o Face ID: confere o PIN, cria o passkey e guarda a chave embrulhada.
-  async function faceEnable(pin) {
+  async function faceEnable(pin, only = false) {
     const env = storedEnvelope();
     if (!env) throw new Error('nopin');
     await openEnvelope(env, pin);
@@ -621,7 +621,7 @@
     const wrapKey = await prfSecret(made.rawId, prfSalt);
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, wrapKey, raw);
-    localStorage.setItem(FACE_KEY, JSON.stringify({ id: toB64(made.rawId), salt: toB64(prfSalt), iv: toB64(iv), data: toB64(data), env: env.salt }));
+    localStorage.setItem(FACE_KEY, JSON.stringify({ id: toB64(made.rawId), salt: toB64(prfSalt), iv: toB64(iv), data: toB64(data), env: env.salt, only }));
   }
 
   // Abre os dados com o Face ID. Lança erro se cancelar ou se o PIN mudou desde que o Face ID foi ligado.
@@ -3987,7 +3987,55 @@
         <div class="field"><label for="facePin">Seu PIN</label>
           <input id="facePin" class="pin-input" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off"></div>
         <button class="btn primary block" type="submit" id="faceSubmit">Ligar Face ID</button>
-      </form>`);
+        <button class="btn block" type="button" id="faceOnly" style="margin-top:8px">Usar só o Face ID (trocar o PIN por um código de recuperação)</button>
+      </form>
+      <div id="faceSlot"></div>`);
+    $('#faceOnly', root).addEventListener('click', async () => {
+      const btn = $('#faceOnly', root);
+      const pin = $('#facePin', root).value;
+      btn.disabled = true;
+      const env = storedEnvelope();
+      const [oldKey, oldSalt, oldLen] = [cryptoKey, cryptoSalt, pinLength];
+      try {
+        await openEnvelope(env, pin);
+      } catch {
+        toast('PIN incorreto.');
+        btn.disabled = false;
+        return;
+      }
+      // Troca o PIN por um código aleatório; quem abre no dia a dia é o Face ID.
+      const code = Array.from(crypto.getRandomValues(new Uint8Array(8)), (n) => n % 10).join('');
+      let newKey = null;
+      let reencoded = false;
+      try {
+        cryptoSalt = crypto.getRandomValues(new Uint8Array(16));
+        newKey = await deriveKey(code, cryptoSalt);
+        cryptoKey = newKey;
+        pinLength = 8;
+        await save();
+        await reencodeSnapshots(oldKey, newKey, cryptoSalt, pinLength);
+        reencoded = true;
+        await faceEnable(code, true);
+      } catch (err) {
+        // Não deu certo: volta para o PIN de antes.
+        cryptoKey = oldKey; cryptoSalt = oldSalt; pinLength = oldLen;
+        await save();
+        if (reencoded) await reencodeSnapshots(newKey, oldKey, oldSalt, oldLen).catch(() => {});
+        faceDisable();
+        const m = String(err && err.message);
+        toast(m === 'noprf' || m === 'prf' ? 'Este iPhone ainda não permite Face ID neste app. Seu PIN continua o mesmo.'
+          : err && err.name === 'NotAllowedError' ? 'Face ID cancelado. Seu PIN continua o mesmo.' : 'Não consegui trocar. Seu PIN continua o mesmo.');
+        btn.disabled = false;
+        return;
+      }
+      $('#faceForm', root).hidden = true;
+      $('#faceSlot', root).innerHTML = `<div class="debt-preview"><p><strong>Pronto! O Face ID agora abre o app.</strong></p>
+        <p>Seu <strong>código de recuperação</strong> é:</p>
+        <p class="num" style="font-size:1.8rem;letter-spacing:.2em;font-weight:800">${code}</p>
+        <p>Anote em um lugar seguro. Se trocar de iPhone ou perder o Face ID do app, só ele abre os seus dados (e os backups).</p></div>
+        <button class="btn primary block" type="button" id="faceDone" style="margin-top:10px">Anotei, fechar</button>`;
+      $('#faceDone', root).addEventListener('click', () => { closeSheet(); openSettings(); });
+    });
     $('#faceForm', root).addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = $('#faceSubmit', root);
@@ -4272,7 +4320,7 @@
     el.innerHTML = `<div class="lock-inner">
       <div class="lock-icon" aria-hidden="true">🔒</div>
       <h1 class="lock-title">Meu Bolso</h1>
-      <p class="lock-msg" id="lockMsg" aria-live="polite">Digite seu PIN</p>
+      <p class="lock-msg" id="lockMsg" aria-live="polite">${faceStored() && faceStored().only ? 'Use o Face ID ou digite o código de recuperação' : 'Digite seu PIN'}</p>
       <div class="pin-dots" id="pinDots" aria-hidden="true"></div>
       <div class="keypad">
         ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<button type="button" data-key="${n}">${n}</button>`).join('')}

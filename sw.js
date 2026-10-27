@@ -1,10 +1,9 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.21.0';
+const VERSION = '1.21.1';
 const NOTES = [
-  'Novo: desbloquear o app com Face ID (⚙ → Segurança → Desbloquear com Face ID)',
-  'O PIN continua valendo como reserva, e trocar o PIN desliga o Face ID por segurança',
+  'Novo: usar só o Face ID. O PIN é trocado por um código de recuperação que você anota uma vez',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [
