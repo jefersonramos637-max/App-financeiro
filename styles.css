@@ -886,6 +886,26 @@ svg { display: block; }
 .offer-actions .btn { padding: 8px 12px; }
 .settled { margin: 0; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--good) 15%, transparent); }
 
+/* Contas a pagar */
+.bill-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.bill {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.bill:last-child { border-bottom: 0; }
+.bill-when { display: block; font-size: 0.8rem; color: var(--muted); }
+.bill-when.critical { color: var(--expense); font-weight: 700; }
+.bill-when.warning { color: var(--text); font-weight: 600; }
+.bill-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.bill-pay { padding: 6px 10px; font-size: 0.8rem; background: var(--accent-soft); color: var(--text); }
+.bills-empty { margin: 0; color: var(--text-2); }
+.bills-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; margin-top: 10px; }
+.tx-side { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+
 /* Explicação de cada aba */
 .help {
   display: flex;

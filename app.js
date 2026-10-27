@@ -123,7 +123,7 @@
   const MAX_CENTS = 1e11;
   const defaultSettings = () => ({ hideValues: false, lockAfter: 60, lastBackupAt: 0, helpSeen: {}, debtExtra: 0, debtStrategy: '' });
   const defaultState = () => ({
-    version: 4, transactions: [], budgets: {}, goals: [], debts: [], salary: null, demo: false, settings: defaultSettings(),
+    version: 5, transactions: [], budgets: {}, goals: [], debts: [], salary: null, demo: false, settings: defaultSettings(),
   });
 
   const isISO = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -159,12 +159,21 @@
         if (t.installment) tx.installment = String(t.installment).slice(0, 10);
         if (t.recurring) tx.recurring = true;
         if (typeof t.salaryKey === 'string') tx.salaryKey = t.salaryKey.slice(0, 20);
+        if (t.bill) tx.bill = true;
+        if (isISO(t.paidAt)) tx.paidAt = t.paidAt;
         if (t.debtId && Number.isInteger(t.debtNo)) {
           tx.debtId = String(t.debtId);
           tx.debtNo = t.debtNo;
         }
         return tx;
       });
+    // Dados de antes das contas a pagar: o que já venceu conta como pago.
+    if (!(raw.version >= 5)) {
+      const today = todayISO();
+      for (const t of s.transactions) {
+        if (t.type === 'expense' && (t.recurring || t.installment) && t.date < today && !t.paidAt) t.paidAt = t.date;
+      }
+    }
     if (raw.budgets && typeof raw.budgets === 'object') {
       for (const [k, v] of Object.entries(raw.budgets)) {
         if (CATEGORIES.expense.some((c) => c.id === k) && isPosInt(v)) s.budgets[k] = v;
@@ -610,14 +619,186 @@
   function salaryPlan(allow) {
     const { next, after } = allow;
     if (!after) return null;
+    const today = todayISO();
     let exp = 0;
-    for (const t of state.transactions) if (t.type === 'expense' && t.date >= next.date && t.date < after.date) exp += t.amount;
+    let before = 0;
+    for (const t of state.transactions) {
+      if (t.type !== 'expense') continue;
+      if (t.date >= next.date && t.date < after.date) exp += t.amount;
+      // Antes do salário: só o que ainda vai sair (data futura ou conta em aberto).
+      else if (t.date < next.date && (t.date > today || (isBill(t) && !billPaid(t)))) before += t.amount;
+    }
     const days = Math.max(1, daysUntil(after.date) - daysUntil(next.date));
-    const left = next.amount - allow.exp - exp;
-    return { exp, days, left, after };
+    const left = next.amount - before - exp;
+    return { exp, before, days, left, after };
   }
 
   const salaryLabel = () => (state.salary ? `dia${state.salary.paydays.length > 1 ? 's' : ''} ${state.salary.paydays.map((p) => p.day).join(' e ')}` : '');
+
+  // ---------- Contas a pagar ----------
+  // Conta = gasto que ainda vai sair: fixa mensal, parcela, parcela de dívida ou marcada como "ainda não paguei".
+
+  const isBill = (t) => t.type === 'expense' && !t.cardId && !!(t.bill || t.recurring || t.installment || t.debtId);
+
+  function billPaid(t) {
+    if (t.paidAt) return true;
+    if (t.debtId) {
+      const d = state.debts.find((x) => x.id === t.debtId);
+      return !d || t.debtNo <= d.paid || t.debtNo > d.total - (d.advanced || 0);
+    }
+    return false;
+  }
+
+  // Contas em aberto até a data informada (as atrasadas sempre entram).
+  function pendingBills(until) {
+    const items = [];
+    for (const t of state.transactions) {
+      if (t.date <= until && isBill(t) && !billPaid(t)) {
+        const c = catById('expense', t.category);
+        items.push({ key: t.id, kind: 'tx', t, date: t.date, amount: t.amount, name: t.description || c.name, icon: c.icon });
+      }
+    }
+    return items.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : b.amount - a.amount));
+  }
+
+  function billWhen(date) {
+    const days = daysUntil(date);
+    if (days < 0) return { cls: 'critical', text: `Atrasada desde ${shortDate(date)}` };
+    if (days === 0) return { cls: 'critical', text: 'Vence hoje' };
+    if (days === 1) return { cls: 'warning', text: 'Vence amanhã' };
+    if (days <= 3) return { cls: 'warning', text: `Em ${days} dias · ${shortDate(date)}` };
+    return { cls: '', text: `${shortDate(date)} · em ${days} dias` };
+  }
+
+  function billRow(b) {
+    const w = billWhen(b.date);
+    return `<li class="bill ${w.cls}">
+      <span class="tx-icon" aria-hidden="true">${b.icon}</span>
+      <span class="tx-main"><span class="tx-desc">${esc(b.name)}</span>
+        <span class="bill-when ${w.cls}">${esc(w.text)}${b.t && b.t.installment ? ` · parcela ${esc(b.t.installment)}` : ''}</span></span>
+      <span class="bill-side"><strong class="num">${money(b.amount)}</strong>
+        <button class="btn bill-pay" type="button" data-action="pay-bill" data-kind="${b.kind}" data-key="${esc(b.key)}">✓ Paguei</button></span>
+    </li>`;
+  }
+
+  // Até quando mostrar na tela inicial: o próximo salário, ou os próximos 15 dias.
+  function billsHorizon() {
+    const allow = state.salary ? salaryAllowance() : null;
+    if (allow) return { until: isoOf(new Date(parseISO(allow.next.date).getTime() - 864e5)), label: `até o salário do dia ${allow.next.day}` };
+    const d = new Date();
+    d.setDate(d.getDate() + 15);
+    return { until: isoOf(d), label: 'nos próximos 15 dias' };
+  }
+
+  function billsCard() {
+    if (ui.month !== currentMonth()) return '';
+    const hasBills = state.transactions.some((t) => isBill(t) && t.date >= todayISO()) || pendingBills(todayISO()).length;
+    if (!hasBills) return '';
+    const h = billsHorizon();
+    const items = pendingBills(h.until);
+    const late = items.filter((b) => b.date < todayISO());
+    const total = sum(items.map((b) => b.amount));
+    return `<section class="card bills">
+      <div class="card-head"><div><h2 class="card-title">📅 Contas a pagar</h2>
+        <p class="card-sub">${esc(h.label)}${items.length ? ` · total <strong class="num">${money(total)}</strong>` : ''}</p></div>
+        ${late.length ? `<span class="badge critical">⚠ ${late.length} ${late.length === 1 ? 'atrasada' : 'atrasadas'}</span>` : ''}</div>
+      ${items.length ? `<ul class="bill-list">${items.map(billRow).join('')}</ul>`
+        : `<p class="bills-empty">🎉 Nenhuma conta em aberto ${esc(h.label)}.</p>`}
+      <div class="bills-actions">
+        <button class="link-btn" type="button" data-action="all-bills">Ver próximas contas</button>
+        <button class="link-btn" type="button" data-action="bills-calendar">📅 Lembretes no calendário</button>
+      </div>
+    </section>`;
+  }
+
+  function openBillsSheet() {
+    const d = new Date();
+    d.setDate(d.getDate() + 60);
+    const items = pendingBills(isoOf(d));
+    const groups = [];
+    for (const b of items) {
+      const label = b.date < todayISO() ? 'Atrasadas' : monthName(monthOf(b.date));
+      if (!groups.length || groups[groups.length - 1].label !== label) groups.push({ label, items: [] });
+      groups[groups.length - 1].items.push(b);
+    }
+    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">📅 Próximas contas</h2>
+      <p class="hint">Contas em aberto nos próximos 60 dias. Toque em “✓ Paguei” quando pagar.</p>
+      ${groups.length ? groups.map((g) => `<h3 class="tx-day"><span>${esc(g.label)}</span>
+        <span class="num">${money(sum(g.items.map((b) => b.amount)))}</span></h3><ul class="bill-list">${g.items.map(billRow).join('')}</ul>`).join('')
+        : '<p class="bills-empty">🎉 Nenhuma conta em aberto nos próximos 60 dias.</p>'}
+      <div class="actions" style="margin-top:14px">
+        <button class="btn primary block" type="button" id="calBtn">📅 Pôr lembretes no calendário do celular</button>
+        <p class="hint">Cada conta vira um lembrete no calendário, com alarme às 9h do dia anterior ao vencimento.</p>
+      </div>`);
+    $('#calBtn', root).addEventListener('click', exportBillsCalendar);
+    root.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-action="pay-bill"]');
+      if (!b) return;
+      payBill(b.dataset.kind, b.dataset.key);
+      b.closest('li').remove();
+    });
+  }
+
+  function payBill(kind, key) {
+    if (kind === 'tx') {
+      const t = state.transactions.find((x) => x.id === key);
+      if (!t) return;
+      if (t.debtId) {
+        const d = state.debts.find((x) => x.id === t.debtId);
+        if (d && t.debtNo === d.paid + 1) payDebt(d);
+        else if (d) toast(`Pague primeiro a parcela ${d.paid + 1} de ${d.name}.`);
+        return;
+      }
+      t.paidAt = todayISO();
+      save();
+      render();
+      toast(`${t.description || 'Conta'} paga ✓`, {
+        label: 'Desfazer',
+        run: () => {
+          delete t.paidAt;
+          save();
+          render();
+        },
+      });
+    }
+  }
+
+  // Lembretes no calendário (.ics) para as contas dos próximos 60 dias.
+  function billsICS() {
+    const d = new Date();
+    d.setDate(d.getDate() + 60);
+    const today = todayISO();
+    const items = pendingBills(isoOf(d)).filter((b) => b.date >= today);
+    const icsEsc = (s) => String(s).replace(/[\;,]/g, (m) => `\\${m}`).replace(/\n/g, '\\n');
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+    const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Meu Bolso//PT-BR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:Contas - Meu Bolso'];
+    for (const b of items) {
+      const next = new Date(parseISO(b.date).getTime() + 864e5);
+      const title = `💸 Pagar ${b.name}: ${fmtMoney(b.amount)}`;
+      lines.push('BEGIN:VEVENT', `UID:${b.key}-${b.date}@meubolso`, `DTSTAMP:${stamp}`,
+        `DTSTART;VALUE=DATE:${b.date.replace(/-/g, '')}`, `DTEND;VALUE=DATE:${isoOf(next).replace(/-/g, '')}`,
+        `SUMMARY:${icsEsc(title)}`, `DESCRIPTION:${icsEsc('Lembrete do app Meu Bolso. Depois de pagar, marque como paga no app.')}`,
+        'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEsc(title)}`, 'TRIGGER:-PT15H', 'END:VALARM', 'END:VEVENT');
+    }
+    lines.push('END:VCALENDAR');
+    return { text: lines.join('\r\n'), count: items.length };
+  }
+
+  async function exportBillsCalendar() {
+    const { text, count } = billsICS();
+    if (!count) {
+      toast('Nenhuma conta futura para pôr no calendário.');
+      return;
+    }
+    // No iPhone, abrir o arquivo do calendário mostra “Adicionar todos” direto no app Calendário.
+    if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+      window.location.href = `data:text/calendar;charset=utf-8,${encodeURIComponent(text)}`;
+      return;
+    }
+    if (await deliverFile(`contas-meu-bolso-${todayISO()}.ics`, text, 'text/calendar')) {
+      toast(`${count} ${count === 1 ? 'lembrete criado' : 'lembretes criados'}. Abra o arquivo para pôr no calendário.`);
+    }
+  }
 
   // ---------- Telas ----------
 
@@ -687,6 +868,7 @@
         </div>
       </section>`,
       dailyTip(inc, exp, bal),
+      billsCard(),
       debtsHomeCard(),
       alertsCard(list),
       categoryChart(list, exp),
@@ -743,14 +925,14 @@
           <button class="link-btn" type="button" data-action="salary">Colocar o valor</button>`;
       } else if (allow.inc === 0) {
         icon = '🗓️';
-        const before = allow.exp ? `<p class="tip-small">⚠ Antes do salário vencem <strong class="num">${money(allow.exp)}</strong> em contas. Já estão descontadas na conta acima.</p>` : '';
+        const before = plan.before ? `<p class="tip-small">⚠ Antes do salário ainda vencem <strong class="num">${money(plan.before)}</strong> em contas. Já estão descontadas na conta acima.</p>` : '';
         body = plan.left > 0
           ? `<p>Seu salário do dia ${allow.next.day} cai ${when} (<strong class="num">${money(allow.next.amount)}</strong>).
             Depois das contas até o dia ${plan.after.day}, vão sobrar <strong class="num">${money(plan.left)}</strong>:</p>
             <span class="tip-big num">${money(Math.floor(plan.left / plan.days))} por dia</span>
             <p class="tip-small">É quanto você vai poder gastar por dia nessa quinzena (${plan.days} dias).</p>${before}`
           : `<p>Seu salário do dia ${allow.next.day} cai ${when} (<strong class="num">${money(allow.next.amount)}</strong>).
-            <strong>As contas até o dia ${plan.after.day} somam ${money(allow.exp + plan.exp)}</strong>, ou seja, faltam
+            <strong>As contas até o dia ${plan.after.day} somam ${money(plan.before + plan.exp)}</strong>, ou seja, faltam
             <strong class="num">${money(-plan.left)}</strong>. Veja o que dá para adiar ou cortar.</p>`;
       } else if (allow.available > 0) {
         icon = '📅';
@@ -897,7 +1079,8 @@
       <span class="tx-icon" aria-hidden="true">${c.icon}</span>
       <span class="tx-main"><span class="tx-desc">${esc(t.description || c.name)}</span>
         <span class="tx-meta">${esc(meta)}</span></span>
-      <span class="tx-amount num ${t.type === 'income' ? 'pos' : ''}">${t.type === 'income' ? '+' : '−'} ${money(t.amount)}</span>
+      <span class="tx-side"><span class="tx-amount num ${t.type === 'income' ? 'pos' : ''}">${t.type === 'income' ? '+' : '−'} ${money(t.amount)}</span>
+        ${isBill(t) && !billPaid(t) ? `<span class="badge ${t.date < todayISO() ? 'critical' : 'warning'}">${t.date < todayISO() ? 'Atrasada' : 'A pagar'}</span>` : ''}</span>
     </button></li>`;
   }
 
@@ -1435,8 +1618,10 @@
           <input id="txDesc" maxlength="60" placeholder="Ex.: Mercado do mês (opcional)" autocomplete="off" value="${esc(tx ? tx.description : '')}"></div>
         <div class="field"><span class="label" id="catLabel">Categoria</span>
           <div class="cat-grid" id="catGrid" role="radiogroup" aria-labelledby="catLabel"></div></div>
-        <div class="field"><label for="txDate">Data</label>
+        <div class="field"><label for="txDate" id="txDateLabel">Data</label>
           <input id="txDate" type="date" required value="${tx ? tx.date : defaultDate()}"></div>
+        <label class="check" id="billField"><input type="checkbox" id="txUnpaid"${tx ? (isBill(tx) && !billPaid(tx) ? ' checked' : '') : ''}>
+          <span id="txUnpaidLabel">Ainda não paguei (é uma conta a pagar, como boleto ou conta de luz)</span></label>
         ${isNew ? `<div class="field"><span class="label">Isso se repete?</span>
           <div class="segmented three" id="repeatSeg">
             <button type="button" data-value="single" class="active">Só uma vez</button>
@@ -1455,6 +1640,14 @@
 
     const amount = $('#txAmount', root);
     bindMoney(amount, tx ? tx.amount : 0);
+    const unpaid = $('#txUnpaid', root);
+    let unpaidTouched = !isNew;
+    unpaid.addEventListener('change', () => { unpaidTouched = true; });
+    // Data futura sugere "ainda não paguei"; parcela de dívida é controlada pela aba Dívidas.
+    const paintBill = () => {
+      $('#billField', root).hidden = type !== 'expense' || !!(tx && tx.debtId);
+      if (!unpaidTouched) unpaid.checked = ($('#txDate', root).value || '') > todayISO();
+    };
 
     const paintType = () => {
       $$('#typeSeg button', root).forEach((b) => {
@@ -1474,6 +1667,7 @@
       if (!b) return;
       type = b.dataset.value;
       paintType();
+      paintBill();
       updateRepeatHint();
     });
     $('#catGrid', root).addEventListener('click', (e) => {
@@ -1485,6 +1679,10 @@
         x.setAttribute('aria-checked', String(x === b));
       });
     });
+
+    paintBill();
+    $('#txDate', root).addEventListener('change', paintBill);
+    $('#txDate', root).addEventListener('input', paintBill);
 
     function repeatCount() {
       const n = parseInt($('#txRepeat', root).value, 10);
@@ -1535,10 +1733,21 @@
         return;
       }
       const n = repeat === 'single' ? 1 : repeatCount();
+      const isUnpaid = type === 'expense' && unpaid.checked && !(tx && tx.debtId);
+      // Marca de pago: a primeira ocorrência segue a caixinha; as seguintes ficam a pagar.
+      const markPaid = (t, first) => {
+        delete t.paidAt;
+        if (t.type !== 'expense' || t.debtId) return;
+        if (first && !isUnpaid && (isBill(t) || t.date > todayISO())) t.paidAt = t.date <= todayISO() ? t.date : todayISO();
+      };
       if (!isNew) {
         Object.assign(tx, { type, amount: cents, description, category, date });
+        if (isUnpaid) tx.bill = true;
+        if (!tx.debtId) markPaid(tx, true);
       } else if (repeat === 'single') {
-        state.transactions.push({ id: uid(), type, amount: cents, description, category, date, createdAt: Date.now() });
+        const t = { id: uid(), type, amount: cents, description, category, date, createdAt: Date.now() };
+        if (isUnpaid) t.bill = true;
+        state.transactions.push(t);
       } else {
         const groupId = uid();
         const base = Math.floor(cents / n);
@@ -1551,6 +1760,7 @@
           };
           if (repeat === 'installments') t.installment = `${i + 1}/${n}`;
           else t.recurring = true;
+          if (type === 'expense') markPaid(t, i === 0);
           state.transactions.push(t);
         }
       }
@@ -2911,6 +3121,12 @@
       openTxSheet(null, 'income');
     } else if (action === 'load-demo') {
       loadDemo();
+    } else if (action === 'pay-bill') {
+      payBill(el.dataset.kind, el.dataset.key);
+    } else if (action === 'all-bills') {
+      openBillsSheet();
+    } else if (action === 'bills-calendar') {
+      exportBillsCalendar();
     } else if (action === 'salary') {
       openSalarySheet();
     } else if (action === 'new-debt') {
@@ -3392,6 +3608,9 @@
 
   let started = false;
   function start() {
+    // Dados de versão antiga: grava logo no formato novo.
+    const raw = parseJSON(readRaw());
+    if (raw && !isEnvelope(raw) && !(raw.version >= 5)) save();
     advanceDebts();
     ensureSalary();
     render();

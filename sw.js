@@ -1,11 +1,11 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.6.2';
+const VERSION = '1.7.0';
 const NOTES = [
-  'Novo ícone de configurações: agora é uma engrenagem',
-  'Plano para quitar: o app escolhe por qual dívida começar e mostra quando você fica livre de todas',
-  'Propostas de quitação: registre a oferta do banco e veja o desconto e se vale a pena',
+  'Contas a pagar: veja o que vence até o próximo salário e toque em “✓ Paguei”',
+  'Contas atrasadas aparecem em vermelho, no início e no extrato',
+  'Lembretes no calendário do celular, com alarme no dia anterior ao vencimento',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [

@@ -26,6 +26,9 @@ instalado na tela inicial como um app e continua funcionando sem internet.
 - **Propostas de quitação**: registre o valor oferecido pelo banco, a validade e de onde veio. O app
   mostra o desconto em R$ e %, avalia a proposta e, ao aceitar, quita a dívida.
 - **Antecipar parcelas**: registre parcelas pagas adiantadas e o valor pago com desconto.
+- **Contas a pagar**: contas fixas, parcelas e gastos marcados como “ainda não paguei” aparecem na
+  tela inicial até o próximo salário, com “✓ Paguei”, aviso de atrasadas e lembretes no calendário
+  do celular (arquivo .ics com alarme às 9h do dia anterior).
 - **Limites**: limite mensal por categoria, com aviso ao chegar a 80% e quando estoura.
 - **Regra 50/30/20**: compara seus gastos com o ideal (50% necessidades, 30% desejos, 20% futuro).
 - **Metas**: quanto guardar por mês para chegar no objetivo até o prazo, e o tamanho ideal da
