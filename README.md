@@ -22,13 +22,19 @@ Faça backup de vez em quando pela engrenagem ⚙ no topo.
 
 ## Como colocar no celular
 
-1. No GitHub, abra **Settings → Pages** e, em **Source**, escolha **GitHub Actions**.
-2. Coloque o código na branch `main`. O workflow `.github/workflows/pages.yml` publica o
-   site sozinho a cada push (também dá para rodar manualmente na aba **Actions**).
-3. Abra o endereço que aparece em Settings → Pages
-   (algo como `https://SEU-USUARIO.github.io/App-financeiro/`) no celular:
-   - **Android (Chrome)**: menu ⋮ → **Instalar app** ou **Adicionar à tela inicial**.
-   - **iPhone (Safari)**: botão Compartilhar → **Adicionar à Tela de Início**.
+O site é publicado pelo GitHub Pages a partir da branch `main`.
+
+1. O repositório precisa ser **público** (o Pages gratuito não publica repositório privado).
+   Em **Settings → General → Danger Zone → Change visibility → Public**.
+   Só o código fica visível. Seus lançamentos ficam no celular e nunca vão para o GitHub.
+2. Em **Settings → Pages**, no campo **Source** escolha **Deploy from a branch**,
+   depois a branch **main** e a pasta **/ (root)**, e clique em **Save**.
+3. Em 1 ou 2 minutos o endereço aparece no topo da página de Pages:
+   `https://jefersonramos637-max.github.io/App-financeiro/`
+4. Abra esse endereço no **Safari** do iPhone, toque em **Compartilhar** →
+   **Adicionar à Tela de Início** → **Adicionar**.
+
+Para atualizar o app depois, basta enviar as mudanças para a `main`.
 
 ## Rodar no computador
 
