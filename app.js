@@ -4043,7 +4043,6 @@
         toast('Pronto! Dados adicionados ✓');
       });
     });
-    $('#setupCode', root).focus();
   }
 
   // ---------- Tela de bloqueio ----------
@@ -4432,6 +4431,22 @@
   }, { passive: false });
   // Se o teclado empurrar a página, volta para o lugar.
   window.addEventListener('scroll', () => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); }, { passive: true });
+  // Com o teclado aberto, o painel sobe junto e fica inteiro acima dele.
+  const vv = window.visualViewport;
+  if (vv) {
+    const fitKeyboard = () => {
+      const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+      document.documentElement.style.setProperty('--kb', `${kb}px`);
+      document.documentElement.style.setProperty('--vh', `${Math.round(vv.height)}px`);
+      if (kb > 0) {
+        const f = document.activeElement;
+        if (f && f.closest && f.closest('.sheet')) f.scrollIntoView({ block: 'center' });
+      }
+    };
+    vv.addEventListener('resize', fitKeyboard);
+    vv.addEventListener('scroll', fitKeyboard);
+    fitKeyboard();
+  }
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
 
   // Arrastar para os lados troca o mês.

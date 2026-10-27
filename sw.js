@@ -1,12 +1,10 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.17.0';
+const VERSION = '1.17.1';
 const NOTES = [
-  'A tela não desliza, não estica nem balança mais ao arrastar o dedo: só o conteúdo rola, para cima e para baixo',
-  'Sem zoom: pinça e toque duplo bloqueados, e o texto dos botões não é selecionado',
-  'Gestos de arrastar (trocar de mês, puxar para atualizar) agora são opcionais, em ⚙ → Aparência',
-  'Os painéis ganharam um botão X para fechar',
+  'Corrigido: ao colar o código do assistente, o campo ficava escondido atrás do teclado do iPhone',
+  'Os painéis agora sobem junto com o teclado e ficam inteiros à vista',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [
