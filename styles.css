@@ -826,6 +826,64 @@ svg { display: block; }
 .pay-box .field input { background: var(--surface); }
 .tip-small { margin-top: 6px !important; font-size: 0.85rem; }
 
+/* Plano para quitar */
+.plan { display: flex; flex-direction: column; gap: 12px; }
+.plan .segmented button { font-size: 0.85rem; }
+.plan-first {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.plan-first .eyebrow { color: inherit; opacity: 0.8; }
+.plan-first strong { font-size: 1.2rem; }
+.plan-first p { margin: 0; font-size: 0.9rem; }
+.plan-label { margin: 0; font-weight: 700; font-size: 0.9rem; }
+.plan-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.plan-steps li { display: flex; gap: 10px; align-items: center; }
+.plan-steps small { display: block; color: var(--text-2); }
+.plan-steps b { color: var(--income); }
+.plan-n {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 0.85rem;
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.plan-free { padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-size: 0.92rem; }
+.plan-free b { color: var(--income); }
+.plan-offer { margin: 0; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--warning) 22%, transparent); font-size: 0.9rem; }
+
+/* Propostas de quitação */
+.offers { display: flex; flex-direction: column; gap: 8px; }
+.offers-title { margin: 0; font-weight: 700; font-size: 0.9rem; }
+.offer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 2px solid transparent;
+}
+.offer.best { border-color: var(--accent); }
+.offer.expired { opacity: 0.6; }
+.offer-main { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.offer-main strong { font-size: 1.05rem; }
+.offer-main small { flex-basis: 100%; color: var(--text-2); }
+.offer-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.offer-actions .btn { padding: 8px 12px; }
+.settled { margin: 0; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--good) 15%, transparent); }
+
 /* Explicação de cada aba */
 .help {
   display: flex;

@@ -121,7 +121,7 @@
 
   const LOCK_OPTIONS = [0, 60, 300];
   const MAX_CENTS = 1e11;
-  const defaultSettings = () => ({ hideValues: false, lockAfter: 60, lastBackupAt: 0, helpSeen: {} });
+  const defaultSettings = () => ({ hideValues: false, lockAfter: 60, lastBackupAt: 0, helpSeen: {}, debtExtra: 0, debtStrategy: '' });
   const defaultState = () => ({
     version: 4, transactions: [], budgets: {}, goals: [], debts: [], salary: null, demo: false, settings: defaultSettings(),
   });
@@ -140,6 +140,8 @@
       lockAfter: LOCK_OPTIONS.includes(rs.lockAfter) ? rs.lockAfter : 60,
       lastBackupAt: Number.isFinite(rs.lastBackupAt) ? rs.lastBackupAt : 0,
       helpSeen: Object.fromEntries(HELP_TABS.filter((t) => rs.helpSeen && rs.helpSeen[t] === true).map((t) => [t, true])),
+      debtExtra: Number.isInteger(rs.debtExtra) && rs.debtExtra >= 0 && rs.debtExtra <= MAX_CENTS ? rs.debtExtra : 0,
+      debtStrategy: ['fast', 'interest'].includes(rs.debtStrategy) ? rs.debtStrategy : '',
     };
     s.transactions = (Array.isArray(raw.transactions) ? raw.transactions : [])
       .filter((t) => t && CATEGORIES[t.type] && isPosInt(t.amount) && isISO(t.date))
@@ -197,18 +199,34 @@
     s.debts = (Array.isArray(raw.debts) ? raw.debts : [])
       .filter((d) => d && typeof d.name === 'string' && isPosInt(d.amount) && Number.isInteger(d.total)
         && d.total >= 1 && d.total <= 600 && isISO(d.nextDue))
-      .map((d) => ({
-        id: String(d.id || uid()),
-        name: d.name.slice(0, 40),
-        icon: DEBT_TYPES.some((t) => t.icon === d.icon) ? d.icon : DEBT_TYPES[0].icon,
-        amount: d.amount,
-        total: d.total,
-        paid: Number.isInteger(d.paid) ? Math.min(Math.max(d.paid, 0), d.total) : 0,
-        dueDay: Number.isInteger(d.dueDay) && d.dueDay >= 1 && d.dueDay <= 31 ? d.dueDay : Number(d.nextDue.slice(8, 10)),
-        nextDue: d.nextDue,
-        linked: d.linked !== false,
-        createdAt: Number(d.createdAt) || Date.now(),
-      }));
+      .map((d) => {
+        const paid = Number.isInteger(d.paid) ? Math.min(Math.max(d.paid, 0), d.total) : 0;
+        const debt = {
+          id: String(d.id || uid()),
+          name: d.name.slice(0, 40),
+          icon: DEBT_TYPES.some((t) => t.icon === d.icon) ? d.icon : DEBT_TYPES[0].icon,
+          amount: d.amount,
+          total: d.total,
+          paid,
+          advanced: Number.isInteger(d.advanced) && d.advanced > 0 ? Math.min(d.advanced, d.total - paid) : 0,
+          rate: Number.isFinite(d.rate) && d.rate > 0 && d.rate <= 30 ? Math.round(d.rate * 100) / 100 : null,
+          dueDay: Number.isInteger(d.dueDay) && d.dueDay >= 1 && d.dueDay <= 31 ? d.dueDay : Number(d.nextDue.slice(8, 10)),
+          nextDue: d.nextDue,
+          linked: d.linked !== false,
+          offers: (Array.isArray(d.offers) ? d.offers : [])
+            .filter((o) => o && isPosInt(o.value) && isPosInt(o.remaining) && isISO(o.date))
+            .slice(-20)
+            .map((o) => ({
+              id: String(o.id || uid()), value: o.value, remaining: o.remaining, date: o.date,
+              until: isISO(o.until) ? o.until : '', note: String(o.note || '').slice(0, 40),
+            })),
+          createdAt: Number(d.createdAt) || Date.now(),
+        };
+        if (d.settled && isPosInt(d.settled.value) && isISO(d.settled.date)) {
+          debt.settled = { value: d.settled.value, saved: Number.isInteger(d.settled.saved) ? d.settled.saved : 0, date: d.settled.date };
+        }
+        return debt;
+      });
     return s;
   }
 
@@ -438,8 +456,11 @@
   const shortDate = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
   const monthYear = (ym) => monthName(ym, { month: 'short', year: 'numeric' }).replace('.', '');
 
+  // Parcelas que faltam: total menos as pagas e as antecipadas.
+  const leftOf = (d) => d.total - d.paid - (d.advanced || 0);
+
   function debtInfo(d) {
-    const left = d.total - d.paid;
+    const left = leftOf(d);
     const nextYM = monthOf(d.nextDue);
     const lastYM = left > 0 ? shiftMonth(nextYM, left - 1) : null;
     const firstYM = shiftMonth(nextYM, -d.paid);
@@ -448,7 +469,7 @@
       done: left <= 0,
       current: Math.min(d.paid + 1, d.total),
       leftAmount: left * d.amount,
-      paidAmount: d.paid * d.amount,
+      paidAmount: (d.total - left) * d.amount,
       totalAmount: d.total * d.amount,
       lastYM,
       days: daysUntil(d.nextDue),
@@ -465,7 +486,7 @@
     state.transactions = state.transactions.filter((t) => !(t.debtId === d.id && t.debtNo > d.paid));
     if (!d.linked) return;
     let ym = monthOf(d.nextDue);
-    for (let k = d.paid + 1; k <= d.total; k++) {
+    for (let k = d.paid + 1; k <= d.total - (d.advanced || 0); k++) {
       state.transactions.push({
         id: uid(), type: 'expense', category: 'dividas', amount: d.amount, description: d.name,
         date: dueIn(ym, d.dueDay), installment: `${k}/${d.total}`, debtId: d.id, debtNo: k, createdAt: Date.now() + k,
@@ -479,7 +500,7 @@
     const today = todayISO();
     let changed = false;
     for (const d of state.debts) {
-      while (d.paid < d.total && d.nextDue < today) {
+      while (leftOf(d) > 0 && d.nextDue < today) {
         d.paid += 1;
         d.nextDue = dueIn(shiftMonth(monthOf(d.nextDue), 1), d.dueDay);
         changed = true;
@@ -627,6 +648,7 @@
     const view = $('#view');
     view.innerHTML = views[ui.tab]();
     if (ui.tab === 'transactions') renderTxList();
+    if (ui.tab === 'debts') bindPlan();
     // Ao trocar de aba, os cartões entram em sequência.
     if (ui.lastTab !== ui.tab) {
       ui.lastTab = ui.tab;
@@ -1028,7 +1050,7 @@
   // ----- Dívidas -----
 
   function debtsHomeCard() {
-    const active = state.debts.filter((d) => d.paid < d.total);
+    const active = state.debts.filter((d) => leftOf(d) > 0);
     if (!active.length) return '';
     const next = active.slice().sort((a, b) => (a.nextDue < b.nextDue ? -1 : 1))[0];
     const days = daysUntil(next.nextDue);
@@ -1046,12 +1068,12 @@
     if (i.done) badge = '<span class="badge good">🎉 Quitada</span>';
     else if (i.days <= 0) badge = '<span class="badge critical">⚠ Vence hoje</span>';
     else if (i.days <= 5) badge = `<span class="badge warning">⏰ ${i.days === 1 ? 'Amanhã' : `Em ${i.days} dias`}</span>`;
-    const pct = d.paid / d.total;
+    const pct = (d.total - i.left) / d.total;
     return `<section class="card debt">
       <div class="goal-head">
         <span class="tx-icon" aria-hidden="true">${d.icon}</span>
         <div style="min-width:0;flex:1"><h2 class="goal-name">${esc(d.name)}</h2>
-          <p class="card-sub">${i.done ? `${d.total} parcelas pagas` : `Próxima: parcela <strong>${i.current} de ${d.total}</strong>`}</p></div>
+          <p class="card-sub">${i.done ? (d.settled ? 'Quitada com proposta' : `${d.total} parcelas pagas`) : `Próxima: parcela <strong>${i.current} de ${d.total}</strong>`}${d.rate && !i.done ? ` · juros ${rateText(d.rate)}` : ''}</p></div>
         ${badge}
       </div>
       ${i.done ? '' : `<div class="debt-big"><span>Falta pagar</span><strong class="num">${money(i.leftAmount)}</strong></div>
@@ -1062,13 +1084,181 @@
         <div><dt>Última parcela</dt><dd>${esc(monthYear(i.lastYM))}</dd></div>
       </dl>`}
       <div class="progress" style="grid-column:auto"><div class="${i.done ? 'good' : 'neutral'}" style="width:${(pct * 100).toFixed(1)}%"></div></div>
-      <div class="goal-nums"><span>${d.paid} de ${d.total} pagas · <span class="num">${money(i.paidAmount)}</span></span>
-        <span>Total <span class="num">${money(i.totalAmount)}</span></span></div>
+      ${d.settled ? `<p class="settled">🎉 Quitada em ${shortDate(d.settled.date)} pagando <strong class="num">${money(d.settled.value)}</strong>${d.settled.saved ? ` · economia de <strong class="num">${money(d.settled.saved)}</strong>` : ''}</p>`
+        : `<div class="goal-nums"><span>${d.total - i.left} de ${d.total} pagas${d.advanced ? ` (${d.advanced} antecipadas)` : ''} · <span class="num">${money(i.paidAmount)}</span></span>
+        <span>Total <span class="num">${money(i.totalAmount)}</span></span></div>`}
+      ${offersBlock(d)}
       <div class="goal-actions">
         ${i.done ? '' : `<button class="btn primary" type="button" data-action="pay-debt" data-id="${esc(d.id)}">✓ Paguei esta parcela</button>`}
         <button class="btn" type="button" data-action="edit-debt" data-id="${esc(d.id)}">Editar</button>
       </div>
+      ${i.done ? '' : `<div class="goal-actions">
+        <button class="btn" type="button" data-action="advance-debt" data-id="${esc(d.id)}">⏩ Antecipar</button>
+        <button class="btn" type="button" data-action="new-offer" data-id="${esc(d.id)}">💬 Proposta</button>
+      </div>`}
     </section>`;
+  }
+
+  // ----- Plano para quitar -----
+  // Simula mês a mês: paga as parcelas normais e coloca o extra na primeira dívida da fila.
+  // Quando uma dívida acaba, a parcela dela passa a reforçar a próxima ("bola de neve").
+
+  const rateText = (r) => `${String(r).replace('.', ',')}% ao mês`;
+
+  function planStrategy() {
+    const chosen = state.settings.debtStrategy;
+    if (chosen === 'fast' || chosen === 'interest') return chosen;
+    return state.debts.some((d) => leftOf(d) > 0 && d.rate) ? 'interest' : 'fast';
+  }
+
+  function payoffPlan(extra, strategy) {
+    const items = state.debts.filter((d) => leftOf(d) > 0).map((d) => ({
+      d, rem: leftOf(d) * d.amount, inst: d.amount, start: monthOf(d.nextDue), end: null, baseEnd: debtInfo(d).lastYM,
+    }));
+    const byRem = (a, b) => a.rem - b.rem;
+    const byRate = (a, b) => (b.d.rate || 0) - (a.d.rate || 0);
+    items.sort(strategy === 'interest' ? (a, b) => byRate(a, b) || byRem(a, b) : (a, b) => byRem(a, b) || byRate(a, b));
+    const cur = currentMonth();
+    let rollover = 0;
+    for (let m = 0; m < 600 && items.some((x) => x.rem > 0); m++) {
+      const ym = shiftMonth(cur, m);
+      for (const x of items) {
+        if (x.rem > 0 && ym >= x.start) {
+          x.rem -= Math.min(x.inst, x.rem);
+          if (x.rem <= 0) x.end = ym;
+        }
+      }
+      let pool = extra + rollover;
+      for (const x of items) {
+        if (pool <= 0) break;
+        if (x.rem > 0) {
+          const pay = Math.min(pool, x.rem);
+          x.rem -= pay;
+          pool -= pay;
+          if (x.rem <= 0) x.end = ym;
+        }
+      }
+      rollover = sum(items.filter((x) => x.rem <= 0).map((x) => x.inst));
+    }
+    const freeYM = items.reduce((m, x) => (x.end && x.end > m ? x.end : m), '');
+    const baseYM = items.reduce((m, x) => (x.baseEnd && x.baseEnd > m ? x.baseEnd : m), '');
+    return { items, freeYM, baseYM, saved: freeYM && baseYM ? monthsBetween(freeYM, baseYM) : 0 };
+  }
+
+  function planCard(active) {
+    const strategy = planStrategy();
+    const anyRate = active.some((d) => d.rate);
+    return `<section class="card plan">
+      <div><h2 class="card-title">🎯 Plano para quitar</h2>
+        <p class="card-sub">O app escolhe por onde começar e calcula quando você fica livre</p></div>
+      <div class="field"><label for="planExtra">Quanto a mais por mês você consegue colocar nas dívidas?</label>
+        <input id="planExtra" class="money" inputmode="numeric" autocomplete="off"></div>
+      <div class="chips" id="planChips">${[5000, 10000, 20000, 50000].map((c) => `<button class="chip" type="button" data-cents="${c}">${fmtMoney(c).replace(',00', '')}</button>`).join('')}</div>
+      ${active.length > 1 ? `<div class="segmented" id="planStrategy">
+        <button type="button" data-value="fast" class="${strategy === 'fast' ? 'active' : ''}">⚡ Menor dívida primeiro</button>
+        <button type="button" data-value="interest" class="${strategy === 'interest' ? 'active' : ''}">💸 Maior juros primeiro</button>
+      </div>
+      ${anyRate ? '' : '<p class="hint">💡 Sabe os juros de cada dívida? Coloque em Editar → “Juros ao mês”. Com eles, o app consegue mostrar onde você economiza mais.</p>'}` : ''}
+      <div id="planResult" aria-live="polite"></div>
+    </section>`;
+  }
+
+  function renderPlanResult() {
+    const box = $('#planResult');
+    if (!box) return;
+    const extra = state.settings.debtExtra || 0;
+    const strategy = planStrategy();
+    const plan = payoffPlan(extra, strategy);
+    if (!plan.items.length) {
+      box.innerHTML = '';
+      return;
+    }
+    const first = plan.items[0];
+    const reason = strategy === 'interest' && first.d.rate
+      ? `Tem os <strong>maiores juros (${rateText(first.d.rate)})</strong>. Cada real antecipado nela é o que mais economiza.`
+      : `É a <strong>menor dívida</strong> (falta ${money(leftOf(first.d) * first.d.amount)}). Quitando primeiro, você se livra da parcela de ${money(first.inst)} mais rápido e usa esse dinheiro na próxima.`;
+    const offer = state.debts.map((d) => ({ d, o: bestOffer(d) })).filter((x) => x.o && offerPct(x.o) >= 30)
+      .sort((a, b) => offerPct(b.o) - offerPct(a.o))[0];
+    box.innerHTML = `<div class="plan-first">
+        <span class="eyebrow">Comece por</span>
+        <strong>${first.d.icon} ${esc(first.d.name)}</strong>
+        <p>${reason}</p>
+        ${extra ? `<p>Todo mês: pague as parcelas normais e use <strong class="num">${money(extra)}</strong> para <strong>antecipar parcelas</strong> desta dívida (botão ⏩ Antecipar).</p>` : ''}
+      </div>
+      <p class="plan-label">Quando cada dívida acaba:</p>
+      <ol class="plan-steps">${plan.items.slice().sort((a, b) => (a.end < b.end ? -1 : 1)).map((x, k) => {
+        const diff = x.end && x.baseEnd ? monthsBetween(x.end, x.baseEnd) : 0;
+        return `<li><span class="plan-n">${k + 1}</span><div><strong>${esc(x.d.name)}</strong>
+          <small>Quitada em ${esc(monthYear(x.end))}${diff > 0 ? ` · <b>${diff} ${diff === 1 ? 'mês' : 'meses'} antes</b>` : ''}</small></div></li>`;
+      }).join('')}</ol>
+      <div class="plan-free">🏁 Livre de todas as dívidas em <strong>${esc(monthYear(plan.freeYM))}</strong>${plan.saved > 0
+        ? `: <b>${plan.saved} ${plan.saved === 1 ? 'mês' : 'meses'} antes</b> do previsto (${esc(monthYear(plan.baseYM))}) 🎉`
+        : extra ? '' : '. Coloque um valor a mais por mês acima para ver quanto dá para antecipar.'}</div>
+      ${offer ? `<p class="plan-offer">💬 <strong>${esc(offer.d.name)}</strong> tem proposta de quitação com <strong>${offerPct(offer.o)}% de desconto</strong>. Se você tiver o dinheiro à vista, pode valer mais a pena começar por ela.</p>` : ''}
+      <p class="hint">Quando uma dívida acaba, o valor da parcela dela vai para a próxima da lista. Na vida real, antecipar costuma dar desconto de juros, então você termina antes ou pagando menos que o cálculo.</p>`;
+  }
+
+  // Liga os controles do plano depois que a aba Dívidas é desenhada.
+  let planSaveTimer = 0;
+  function bindPlan() {
+    const input = $('#planExtra');
+    if (!input) return;
+    bindMoney(input, state.settings.debtExtra || 0);
+    input.addEventListener('input', () => {
+      state.settings.debtExtra = centsOf(input);
+      renderPlanResult();
+      clearTimeout(planSaveTimer);
+      planSaveTimer = setTimeout(save, 600);
+    });
+    $('#planChips').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-cents]');
+      if (!b) return;
+      input.value = b.dataset.cents;
+      input.dispatchEvent(new Event('input'));
+    });
+    const seg = $('#planStrategy');
+    if (seg) {
+      seg.addEventListener('click', (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        state.settings.debtStrategy = b.dataset.value;
+        $$('button', seg).forEach((x) => x.classList.toggle('active', x === b));
+        save();
+        renderPlanResult();
+      });
+    }
+    renderPlanResult();
+  }
+
+  // ----- Propostas de quitação -----
+
+  const offerPct = (o) => (o.remaining > o.value ? Math.round(((o.remaining - o.value) / o.remaining) * 100) : 0);
+  const offerValid = (o) => !o.until || o.until >= todayISO();
+  const bestOffer = (d) => (leftOf(d) > 0 ? d.offers.filter(offerValid).sort((a, b) => offerPct(b) - offerPct(a))[0] : null);
+  function offerGrade(pct) {
+    if (pct >= 50) return { cls: 'good', label: '🔥 Ótima proposta' };
+    if (pct >= 30) return { cls: 'good', label: '👍 Boa proposta' };
+    if (pct >= 10) return { cls: 'warning', label: '🤝 Dá para negociar mais' };
+    return { cls: 'critical', label: '👎 Desconto fraco' };
+  }
+
+  function offersBlock(d) {
+    if (!d.offers.length || leftOf(d) <= 0) return '';
+    const best = bestOffer(d);
+    return `<div class="offers"><p class="offers-title">💬 Propostas de quitação</p>${d.offers.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).map((o) => {
+      const pct = offerPct(o);
+      const g = offerGrade(pct);
+      const valid = offerValid(o);
+      return `<div class="offer${o === best ? ' best' : ''}${valid ? '' : ' expired'}">
+        <div class="offer-main"><strong class="num">${money(o.value)}</strong>
+          <span class="badge ${valid ? g.cls : ''}">${valid ? `−${pct}%` : 'Vencida'}</span>
+          <small>Economia de ${money(Math.max(0, o.remaining - o.value))} · ${shortDate(o.date)}${o.note ? ` · ${esc(o.note)}` : ''}${o.until ? ` · válida até ${shortDate(o.until)}` : ''}</small></div>
+        <div class="offer-actions">
+          ${valid ? `<button class="btn primary" type="button" data-action="accept-offer" data-id="${esc(d.id)}" data-offer="${esc(o.id)}">Aceitar</button>` : ''}
+          <button class="btn" type="button" data-action="del-offer" data-id="${esc(d.id)}" data-offer="${esc(o.id)}" aria-label="Excluir proposta">✕</button>
+        </div>
+      </div>`;
+    }).join('')}</div>`;
   }
 
   function viewDebts() {
@@ -1080,14 +1270,14 @@
         <button class="btn primary" type="button" data-action="new-debt">Cadastrar dívida</button></section>`;
     }
     const cur = currentMonth();
-    const active = state.debts.filter((d) => d.paid < d.total);
+    const active = state.debts.filter((d) => leftOf(d) > 0);
     const infos = active.map(debtInfo);
     const leftTotal = sum(infos.map((i) => i.leftAmount));
     const thisMonth = sum(active.map((d, k) => (infos[k].inMonth(cur) ? d.amount : 0)));
     const freeYM = infos.reduce((m, i) => (i.lastYM && i.lastYM > m ? i.lastYM : m), '');
     const sorted = state.debts.slice().sort((a, b) => {
-      const da = a.paid >= a.total;
-      const db = b.paid >= b.total;
+      const da = leftOf(a) <= 0;
+      const db = leftOf(b) <= 0;
       if (da !== db) return da ? 1 : -1;
       return a.nextDue < b.nextDue ? -1 : 1;
     });
@@ -1102,11 +1292,8 @@
         </section>`
       : `<section class="card tip"><div class="tip-icon" aria-hidden="true">🎉</div><div>
           <p><strong>Parabéns! Todas as dívidas estão quitadas.</strong> Que tal usar o valor das parcelas para guardar dinheiro numa meta?</p></div></section>`;
-    return `${demoBanner()}${help}${summary}${sorted.map(debtCard).join('')}
-      <button class="btn block" type="button" data-action="new-debt">+ Cadastrar dívida</button>
-      ${active.length ? `<section class="card tip"><div class="tip-icon" aria-hidden="true">💡</div><div>
-        <p><strong>Dica:</strong> se sobrar dinheiro, pergunte ao banco sobre <strong>antecipar parcelas</strong>.
-        Pagar antes costuma tirar juros e diminuir o total da dívida.</p></div></section>` : ''}`;
+    return `${demoBanner()}${help}${summary}${active.length ? planCard(active) : ''}${sorted.map(debtCard).join('')}
+      <button class="btn block" type="button" data-action="new-debt">+ Cadastrar dívida</button>`;
   }
 
   // Caixa de explicação no topo de cada aba; some quando a pessoa toca em "Entendi".
@@ -1561,6 +1748,9 @@
           <div class="field"><label for="debtPaid">Quantas já paguei</label>
             <input id="debtPaid" type="number" min="0" max="600" inputmode="numeric" value="${debt ? debt.paid : 0}"></div>
         </div>
+        <div class="field"><label for="debtRate">Juros ao mês (opcional)</label>
+          <input id="debtRate" inputmode="decimal" placeholder="Ex.: 2,99" autocomplete="off" value="${debt && debt.rate ? String(debt.rate).replace('.', ',') : ''}">
+          <p class="hint">Veja no contrato ou no app do banco (“taxa de juros mensal”). Ajuda o plano a escolher por onde começar.</p></div>
         <div class="field"><label for="debtDue">Vencimento da próxima parcela</label>
           <input id="debtDue" type="date" value="${debt ? debt.nextDue : todayISO()}"></div>
         <div class="debt-preview" id="debtPreview" aria-live="polite"></div>
@@ -1632,16 +1822,20 @@
       if (!total || total < 1 || total > 600) return fail('Digite o total de parcelas (de 1 a 600).', 'debtTotal');
       if (paid < 0 || paid > total) return fail('As parcelas pagas não podem passar do total.', 'debtPaid');
       if (!isISO(due)) return fail('Escolha a data de vencimento da próxima parcela.', 'debtDue');
+      const rateRaw = $('#debtRate', root).value.trim().replace('%', '').replace(',', '.');
+      const rate = rateRaw ? Number(rateRaw) : null;
+      if (rateRaw && !(rate > 0 && rate <= 30)) return fail('Juros ao mês: use um número como 2,99 (entre 0 e 30).', 'debtRate');
       const data = {
-        name, icon, amount: a, total, paid,
+        name, icon, amount: a, total, paid, rate: rate ? Math.round(rate * 100) / 100 : null,
         nextDue: due, dueDay: Number(due.slice(8, 10)), linked: $('#debtLinked', root).checked,
       };
       let d = debt;
       if (isNew) {
-        d = { id: uid(), createdAt: Date.now(), ...data };
+        d = { id: uid(), createdAt: Date.now(), advanced: 0, offers: [], ...data };
         state.debts.push(d);
       } else {
         Object.assign(d, data);
+        d.advanced = Math.min(d.advanced || 0, d.total - d.paid);
       }
       syncDebtTx(d);
       advanceDebts();
@@ -1680,6 +1874,176 @@
     if (isNew) $('#debtName', root).focus();
   }
 
+  function openOfferSheet(d) {
+    const remaining = leftOf(d) * d.amount;
+    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">💬 Proposta de quitação</h2>
+      <form id="offerForm" class="form" novalidate>
+        <p class="hint"><strong>${esc(d.name)}</strong>: hoje falta pagar <strong class="num">${fmtMoney(remaining)}</strong> (${leftOf(d)} ${leftOf(d) === 1 ? 'parcela' : 'parcelas'} de ${fmtMoney(d.amount)}).</p>
+        <div class="field"><label for="offerValue">Valor da proposta para quitar à vista</label>
+          <input id="offerValue" class="money" inputmode="numeric" autocomplete="off"></div>
+        <div class="field-row">
+          <div class="field"><label for="offerUntil">Válida até (opcional)</label>
+            <input id="offerUntil" type="date" min="${todayISO()}"></div>
+          <div class="field"><label for="offerNote">De onde veio</label>
+            <input id="offerNote" maxlength="40" placeholder="Ex.: app do banco" autocomplete="off"></div>
+        </div>
+        <div class="debt-preview" id="offerPreview" aria-live="polite"></div>
+        <p class="hint">⚠ <strong>Cuidado com golpes:</strong> só aceite propostas pelos canais oficiais (app ou site do banco, Serasa Limpa Nome). Nunca pague boleto recebido por WhatsApp ou SMS sem conferir no app do banco.</p>
+        <button class="btn primary block" type="submit">Salvar proposta</button>
+      </form>`);
+    const input = $('#offerValue', root);
+    bindMoney(input, 0);
+    const preview = () => {
+      const v = centsOf(input);
+      const box = $('#offerPreview', root);
+      if (!v) {
+        box.innerHTML = '<p>Digite o valor que o banco ofereceu para quitar.</p>';
+        return;
+      }
+      if (v >= remaining) {
+        box.innerHTML = `<p>⚠ Essa proposta não tem desconto: é igual ou maior que o que falta (${fmtMoney(remaining)}).</p>`;
+        return;
+      }
+      const pct = Math.round(((remaining - v) / remaining) * 100);
+      const g = offerGrade(pct);
+      box.innerHTML = `<p>Sem a proposta: <strong>${fmtMoney(remaining)}</strong></p>
+        <p>Com a proposta: <strong>${fmtMoney(v)}</strong> à vista</p>
+        <p>💰 Você economiza <strong>${fmtMoney(remaining - v)} (${pct}%)</strong> <span class="badge ${g.cls}">${g.label}</span></p>`;
+    };
+    preview();
+    input.addEventListener('input', preview);
+    $('#offerForm', root).addEventListener('submit', (e) => {
+      e.preventDefault();
+      const value = centsOf(input);
+      if (!value) {
+        toast('Digite o valor da proposta.');
+        input.focus();
+        return;
+      }
+      const until = $('#offerUntil', root).value;
+      d.offers.push({ id: uid(), value, remaining, date: todayISO(), until: isISO(until) ? until : '', note: $('#offerNote', root).value.trim() });
+      save();
+      closeSheet();
+      render();
+      toast('Proposta salva');
+    });
+    input.focus();
+  }
+
+  function openAcceptOffer(d, o) {
+    const remaining = leftOf(d) * d.amount;
+    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">✓ Quitar ${esc(d.name)}</h2>
+      <div class="debt-preview">
+        <p>Você paga <strong>${fmtMoney(o.value)}</strong> à vista e a dívida fica quitada.</p>
+        <p>💰 Economia de <strong>${fmtMoney(Math.max(0, remaining - o.value))}</strong> sobre o que faltava (${fmtMoney(remaining)}).</p>
+      </div>
+      <p class="hint">As parcelas futuras saem do extrato e o pagamento de ${fmtMoney(o.value)} entra hoje como despesa. Guarde o comprovante e o termo de quitação do banco.</p>
+      <div class="actions">
+        <button class="btn primary block" type="button" id="acceptYes">✓ Paguei, quitar a dívida</button>
+        <button class="btn block" type="button" id="acceptNo">Ainda não</button>
+      </div>`);
+    $('#acceptNo', root).addEventListener('click', closeSheet);
+    $('#acceptYes', root).addEventListener('click', () => {
+      const before = { debt: JSON.parse(JSON.stringify(d)), transactions: state.transactions.slice() };
+      d.settled = { value: o.value, saved: Math.max(0, remaining - o.value), date: todayISO() };
+      d.advanced = d.total - d.paid;
+      syncDebtTx(d);
+      state.transactions.push({
+        id: uid(), type: 'expense', category: 'dividas', amount: o.value, description: `Quitação: ${d.name}`.slice(0, 60),
+        date: todayISO(), createdAt: Date.now(),
+      });
+      save();
+      closeSheet();
+      render();
+      confetti();
+      toast('Dívida quitada! 🎉', {
+        label: 'Desfazer',
+        run: () => {
+          Object.assign(d, before.debt);
+          delete d.settled;
+          if (before.debt.settled) d.settled = before.debt.settled;
+          state.transactions = before.transactions;
+          save();
+          render();
+          toast('Quitação desfeita');
+        },
+      });
+    });
+  }
+
+  // Antecipar: o banco tira as últimas parcelas; registra o valor pago hoje.
+  function openAdvanceSheet(d) {
+    const left = leftOf(d);
+    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">⏩ Antecipar parcelas</h2>
+      <form id="advForm" class="form" novalidate>
+        <p class="hint"><strong>${esc(d.name)}</strong>: faltam ${left} ${left === 1 ? 'parcela' : 'parcelas'} de ${fmtMoney(d.amount)}.</p>
+        <div class="field-row">
+          <div class="field"><label for="advCount">Quantas parcelas antecipei</label>
+            <input id="advCount" type="number" min="1" max="${left}" inputmode="numeric" value="1"></div>
+          <div class="field"><label for="advValue">Quanto paguei</label>
+            <input id="advValue" class="money" inputmode="numeric" autocomplete="off"></div>
+        </div>
+        <div class="debt-preview" id="advPreview" aria-live="polite"></div>
+        <p class="hint">Peça a antecipação pelo app ou site oficial do banco. Normalmente ele tira as últimas parcelas e dá desconto dos juros: coloque em “Quanto paguei” o valor com desconto.</p>
+        <button class="btn primary block" type="submit">Registrar antecipação</button>
+      </form>`);
+    const countEl = $('#advCount', root);
+    const valueEl = $('#advValue', root);
+    const count = () => Math.min(left, Math.max(1, parseInt(countEl.value, 10) || 1));
+    bindMoney(valueEl, d.amount);
+    let touched = false;
+    valueEl.addEventListener('beforeinput', () => { touched = true; });
+    const preview = () => {
+      const n = count();
+      if (!touched) {
+        valueEl.dataset.cents = String(n * d.amount);
+        valueEl.value = fmtMoney(n * d.amount);
+      }
+      const v = centsOf(valueEl);
+      const rest = left - n;
+      const disc = n * d.amount - v;
+      $('#advPreview', root).innerHTML = `<p>Depois disso faltam <strong>${rest} ${rest === 1 ? 'parcela' : 'parcelas'}</strong>${rest
+        ? ` e a última fica para <strong>${monthYear(shiftMonth(monthOf(d.nextDue), rest - 1))}</strong>` : ': <strong>dívida quitada! 🎉</strong>'}.</p>
+        ${disc > 0 ? `<p>💰 Desconto de <strong>${fmtMoney(disc)}</strong> nos juros.</p>` : ''}`;
+    };
+    preview();
+    countEl.addEventListener('input', preview);
+    valueEl.addEventListener('input', preview);
+    $('#advForm', root).addEventListener('submit', (e) => {
+      e.preventDefault();
+      const n = count();
+      const v = centsOf(valueEl);
+      if (!v) {
+        toast('Digite quanto você pagou.');
+        valueEl.focus();
+        return;
+      }
+      const before = { advanced: d.advanced };
+      const txId = uid();
+      d.advanced += n;
+      syncDebtTx(d);
+      state.transactions.push({
+        id: txId, type: 'expense', category: 'dividas', amount: v,
+        description: `Antecipação: ${d.name} (${n} ${n === 1 ? 'parcela' : 'parcelas'})`.slice(0, 60), date: todayISO(), createdAt: Date.now(),
+      });
+      save();
+      closeSheet();
+      render();
+      if (leftOf(d) <= 0) confetti();
+      toast(leftOf(d) ? `${n} ${n === 1 ? 'parcela antecipada' : 'parcelas antecipadas'}. Faltam ${leftOf(d)}.` : 'Dívida quitada! 🎉', {
+        label: 'Desfazer',
+        run: () => {
+          d.advanced = before.advanced;
+          state.transactions = state.transactions.filter((t) => t.id !== txId);
+          syncDebtTx(d);
+          save();
+          render();
+          toast('Antecipação desfeita');
+        },
+      });
+    });
+  }
+
   // "Paguei esta parcela": conta a parcela como paga e, se ela estava no extrato
   // com data futura, traz o lançamento para hoje.
   function payDebt(d) {
@@ -1691,7 +2055,7 @@
     d.nextDue = dueIn(shiftMonth(monthOf(d.nextDue), 1), d.dueDay);
     save();
     render();
-    const left = d.total - d.paid;
+    const left = leftOf(d);
     toast(left ? `Parcela ${d.paid} de ${d.total} paga. Faltam ${left}.` : 'Última parcela paga. Dívida quitada! 🎉', {
       label: 'Desfazer',
       run: () => {
@@ -2550,9 +2914,28 @@
       openSalarySheet();
     } else if (action === 'new-debt') {
       openDebtSheet();
-    } else if (action === 'edit-debt' || action === 'pay-debt') {
+    } else if (['edit-debt', 'pay-debt', 'advance-debt', 'new-offer', 'accept-offer', 'del-offer'].includes(action)) {
       const debt = state.debts.find((d) => d.id === el.dataset.id);
-      if (debt) (action === 'pay-debt' ? payDebt : openDebtSheet)(debt);
+      if (!debt) return;
+      const offer = debt.offers.find((o) => o.id === el.dataset.offer);
+      if (action === 'pay-debt') payDebt(debt);
+      else if (action === 'edit-debt') openDebtSheet(debt);
+      else if (action === 'advance-debt') openAdvanceSheet(debt);
+      else if (action === 'new-offer') openOfferSheet(debt);
+      else if (action === 'accept-offer' && offer) openAcceptOffer(debt, offer);
+      else if (action === 'del-offer' && offer) {
+        debt.offers = debt.offers.filter((o) => o !== offer);
+        save();
+        render();
+        toast('Proposta excluída', {
+          label: 'Desfazer',
+          run: () => {
+            debt.offers.push(offer);
+            save();
+            render();
+          },
+        });
+      }
     } else if (action === 'help-ok') {
       state.settings.helpSeen[el.dataset.tab] = true;
       save();

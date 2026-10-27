@@ -19,6 +19,13 @@ instalado na tela inicial como um app e continua funcionando sem internet.
   (ex.: 5 de 12), quantas faltam, quanto falta pagar, quando termina e avisa perto do vencimento.
   No dia do vencimento a parcela conta como paga; se pagar antes, toque em “Paguei esta parcela”.
   As parcelas podem entrar no extrato de cada mês.
+- **Plano para quitar**: informe quanto consegue colocar a mais por mês e o app escolhe a ordem
+  (menor dívida primeiro ou maiores juros primeiro, quando os juros são informados), mostra quando
+  cada dívida acaba e em quantos meses antes você fica livre. A parcela de uma dívida quitada passa
+  a reforçar a próxima.
+- **Propostas de quitação**: registre o valor oferecido pelo banco, a validade e de onde veio. O app
+  mostra o desconto em R$ e %, avalia a proposta e, ao aceitar, quita a dívida.
+- **Antecipar parcelas**: registre parcelas pagas adiantadas e o valor pago com desconto.
 - **Limites**: limite mensal por categoria, com aviso ao chegar a 80% e quando estoura.
 - **Regra 50/30/20**: compara seus gastos com o ideal (50% necessidades, 30% desejos, 20% futuro).
 - **Metas**: quanto guardar por mês para chegar no objetivo até o prazo, e o tamanho ideal da

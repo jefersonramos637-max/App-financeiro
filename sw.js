@@ -1,11 +1,12 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.5.1';
+const VERSION = '1.6.0';
 const NOTES = [
-  'Antes do primeiro salário cair, o app já mostra quanto vai sobrar por dia na quinzena',
-  'Meu salário: informe os dias (ex.: 15 e 30) e o app lança o salário sozinho todo mês',
-  '“Quanto posso gastar por dia” conta até o próximo pagamento, já descontando as contas que vencem antes',
+  'Plano para quitar: o app escolhe por qual dívida começar e mostra quando você fica livre de todas',
+  'Propostas de quitação: registre a oferta do banco e veja o desconto e se vale a pena',
+  'Antecipar parcelas: registre quando pagar parcelas adiantadas com desconto',
+  'Juros ao mês (opcional) em cada dívida, para o plano economizar mais',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [
