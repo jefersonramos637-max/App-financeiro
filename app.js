@@ -40,6 +40,15 @@
 
   const GOAL_ICONS = ['🛡️', '✈️', '🏍️', '🚗', '🏠', '🎓', '💍', '📱', '🎁', '🐷'];
 
+  const DEBT_TYPES = [
+    { icon: '🏦', name: 'Empréstimo' },
+    { icon: '🚗', name: 'Financiamento' },
+    { icon: '💳', name: 'Cartão parcelado' },
+    { icon: '🏠', name: 'Casa / imóvel' },
+    { icon: '📄', name: 'Outro' },
+  ];
+  const HELP_TABS = ['transactions', 'debts', 'budget', 'goals'];
+
   const catById = (type, id) =>
     CATEGORIES[type].find((c) => c.id === id) || CATEGORIES[type][CATEGORIES[type].length - 1];
 
@@ -112,9 +121,9 @@
 
   const LOCK_OPTIONS = [0, 60, 300];
   const MAX_CENTS = 1e11;
-  const defaultSettings = () => ({ hideValues: false, lockAfter: 60, lastBackupAt: 0 });
+  const defaultSettings = () => ({ hideValues: false, lockAfter: 60, lastBackupAt: 0, helpSeen: {} });
   const defaultState = () => ({
-    version: 2, transactions: [], budgets: {}, goals: [], demo: false, settings: defaultSettings(),
+    version: 3, transactions: [], budgets: {}, goals: [], debts: [], demo: false, settings: defaultSettings(),
   });
 
   const isISO = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -130,6 +139,7 @@
       hideValues: !!rs.hideValues,
       lockAfter: LOCK_OPTIONS.includes(rs.lockAfter) ? rs.lockAfter : 60,
       lastBackupAt: Number.isFinite(rs.lastBackupAt) ? rs.lastBackupAt : 0,
+      helpSeen: Object.fromEntries(HELP_TABS.filter((t) => rs.helpSeen && rs.helpSeen[t] === true).map((t) => [t, true])),
     };
     s.transactions = (Array.isArray(raw.transactions) ? raw.transactions : [])
       .filter((t) => t && CATEGORIES[t.type] && isPosInt(t.amount) && isISO(t.date))
@@ -146,6 +156,10 @@
         if (t.groupId) tx.groupId = String(t.groupId);
         if (t.installment) tx.installment = String(t.installment).slice(0, 10);
         if (t.recurring) tx.recurring = true;
+        if (t.debtId && Number.isInteger(t.debtNo)) {
+          tx.debtId = String(t.debtId);
+          tx.debtNo = t.debtNo;
+        }
         return tx;
       });
     if (raw.budgets && typeof raw.budgets === 'object') {
@@ -163,6 +177,21 @@
         saved: Number.isInteger(g.saved) && g.saved > 0 ? Math.min(g.saved, MAX_CENTS) : 0,
         deadline: typeof g.deadline === 'string' && /^\d{4}-\d{2}$/.test(g.deadline) ? g.deadline : '',
         createdAt: Number(g.createdAt) || Date.now(),
+      }));
+    s.debts = (Array.isArray(raw.debts) ? raw.debts : [])
+      .filter((d) => d && typeof d.name === 'string' && isPosInt(d.amount) && Number.isInteger(d.total)
+        && d.total >= 1 && d.total <= 600 && isISO(d.nextDue))
+      .map((d) => ({
+        id: String(d.id || uid()),
+        name: d.name.slice(0, 40),
+        icon: DEBT_TYPES.some((t) => t.icon === d.icon) ? d.icon : DEBT_TYPES[0].icon,
+        amount: d.amount,
+        total: d.total,
+        paid: Number.isInteger(d.paid) ? Math.min(Math.max(d.paid, 0), d.total) : 0,
+        dueDay: Number.isInteger(d.dueDay) && d.dueDay >= 1 && d.dueDay <= 31 ? d.dueDay : Number(d.nextDue.slice(8, 10)),
+        nextDue: d.nextDue,
+        linked: d.linked !== false,
+        createdAt: Number(d.createdAt) || Date.now(),
       }));
     return s;
   }
@@ -384,6 +413,65 @@
     return used.length ? Math.round(sum(used) / used.length) : 0;
   }
 
+  // ---------- Dívidas ----------
+  // Cada dívida guarda quantas parcelas já foram pagas e o próximo vencimento.
+  // Quando o vencimento passa, o app conta a parcela como paga sozinho.
+
+  const dueIn = (ym, day) => `${ym}-${pad(Math.min(day, daysInMonth(ym)))}`;
+  const daysUntil = (iso) => Math.round((parseISO(iso) - parseISO(todayISO())) / 864e5);
+  const shortDate = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+  const monthYear = (ym) => monthName(ym, { month: 'short', year: 'numeric' }).replace('.', '');
+
+  function debtInfo(d) {
+    const left = d.total - d.paid;
+    const nextYM = monthOf(d.nextDue);
+    const lastYM = left > 0 ? shiftMonth(nextYM, left - 1) : null;
+    const firstYM = shiftMonth(nextYM, -d.paid);
+    return {
+      left,
+      done: left <= 0,
+      current: Math.min(d.paid + 1, d.total),
+      leftAmount: left * d.amount,
+      paidAmount: d.paid * d.amount,
+      totalAmount: d.total * d.amount,
+      lastYM,
+      days: daysUntil(d.nextDue),
+      // Tem parcela vencendo no mês informado?
+      inMonth: (ym) => ym >= firstYM && lastYM !== null && ym <= lastYM,
+    };
+  }
+
+  const dueText = (days, iso) =>
+    days === 0 ? 'vence hoje' : days === 1 ? 'vence amanhã' : days < 0 ? `venceu em ${shortDate(iso)}` : `vence em ${days} dias (${shortDate(iso)})`;
+
+  // Coloca as parcelas que faltam no extrato de cada mês (e remove as que não valem mais).
+  function syncDebtTx(d) {
+    state.transactions = state.transactions.filter((t) => !(t.debtId === d.id && t.debtNo > d.paid));
+    if (!d.linked) return;
+    let ym = monthOf(d.nextDue);
+    for (let k = d.paid + 1; k <= d.total; k++) {
+      state.transactions.push({
+        id: uid(), type: 'expense', category: 'dividas', amount: d.amount, description: d.name,
+        date: dueIn(ym, d.dueDay), installment: `${k}/${d.total}`, debtId: d.id, debtNo: k, createdAt: Date.now() + k,
+      });
+      ym = shiftMonth(ym, 1);
+    }
+  }
+
+  // Conta como pagas as parcelas cujo vencimento já passou.
+  function advanceDebts() {
+    const today = todayISO();
+    let changed = false;
+    for (const d of state.debts) {
+      while (d.paid < d.total && d.nextDue < today) {
+        d.paid += 1;
+        d.nextDue = dueIn(shiftMonth(monthOf(d.nextDue), 1), d.dueDay);
+        changed = true;
+      }
+    }
+    if (changed) save();
+  }
+
   // ---------- Telas ----------
 
   const EYE = '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>';
@@ -395,18 +483,21 @@
     privacy.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ui.hide ? EYE_OFF : EYE}</svg>`;
     privacy.setAttribute('aria-pressed', String(ui.hide));
     privacy.setAttribute('aria-label', ui.hide ? 'Mostrar valores' : 'Esconder valores');
-    const onGoals = ui.tab === 'goals';
-    $('#monthLabel').textContent = onGoals ? 'Minhas metas' : monthName(ui.month);
-    $('#monthLabel').disabled = onGoals;
-    $('#prevMonth').hidden = onGoals;
-    $('#nextMonth').hidden = onGoals;
+    const fab = { debts: ['Nova dívida', 'Cadastrar dívida'], goals: ['Nova meta', 'Criar meta'] }[ui.tab] || ['Adicionar', 'Adicionar gasto ou ganho'];
+    $('#fab span').textContent = fab[0];
+    $('#fab').setAttribute('aria-label', fab[1]);
+    const fixedTitle = { goals: 'Minhas metas', debts: 'Minhas dívidas' }[ui.tab];
+    $('#monthLabel').textContent = fixedTitle || monthName(ui.month);
+    $('#monthLabel').disabled = !!fixedTitle;
+    $('#prevMonth').hidden = !!fixedTitle;
+    $('#nextMonth').hidden = !!fixedTitle;
     $$('.tabbar button').forEach((b) => {
       const active = b.dataset.tab === ui.tab;
       b.classList.toggle('active', active);
       if (active) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
     });
-    const views = { home: viewHome, transactions: viewTransactions, budget: viewBudget, goals: viewGoals };
+    const views = { home: viewHome, transactions: viewTransactions, debts: viewDebts, budget: viewBudget, goals: viewGoals };
     $('#view').innerHTML = views[ui.tab]();
     if (ui.tab === 'transactions') renderTxList();
   }
@@ -423,21 +514,22 @@
   }
 
   function viewHome() {
-    if (!state.transactions.length && !state.goals.length) return welcome();
+    if (!state.transactions.length && !state.goals.length && !state.debts.length) return welcome();
     const list = txOfMonth(ui.month);
     const { inc, exp, bal } = totals(list);
     return [
       demoBanner(),
       backupReminder(),
       `<section class="card hero" aria-label="Resumo do mês">
-        <p class="eyebrow">Saldo do mês</p>
+        <p class="eyebrow">Saldo do mês · o que entrou menos o que saiu</p>
         <div class="hero-value num">${money(bal)}</div>
         <div class="hero-split">
-          <div><span>Receitas</span><strong class="num">${money(inc)}</strong></div>
-          <div><span>Despesas</span><strong class="num">${money(exp)}</strong></div>
+          <div><span>⬆ Entrou</span><strong class="num">${money(inc)}</strong></div>
+          <div><span>⬇ Saiu</span><strong class="num">${money(exp)}</strong></div>
         </div>
       </section>`,
       dailyTip(inc, exp, bal),
+      debtsHomeCard(),
       alertsCard(list),
       categoryChart(list, exp),
       trendChart(),
@@ -463,14 +555,16 @@
       <p>Comece lançando sua renda do mês. Depois registre cada gasto e o app mostra quanto você ainda pode gastar por dia.</p>
       <div class="actions">
         <button class="btn primary block" type="button" data-action="new-income">Lançar minha renda</button>
+        <button class="btn block" type="button" data-action="new-debt">Cadastrar uma dívida</button>
         <button class="btn block" type="button" data-action="load-demo">Ver com dados de exemplo</button>
       </div>
     </section>
     <section class="card">
-      <h2 class="card-title">Como se regrar em 3 passos</h2>
+      <h2 class="card-title">Como se regrar em 4 passos</h2>
       <ol class="install-steps" style="margin-top:10px">
-        <li><strong>Lance a renda e as contas fixas</strong> (aluguel, luz, internet). Use “Fixa mensal” para repetir nos próximos meses.</li>
-        <li><strong>Defina limites</strong> para as categorias que mais pesam, na aba Orçamento.</li>
+        <li><strong>Lance a renda e as contas fixas</strong> (aluguel, luz, internet). Marque “Todo mês” para repetir nos próximos meses.</li>
+        <li><strong>Cadastre suas dívidas</strong> na aba Dívidas. O app conta sozinho quantas parcelas faltam.</li>
+        <li><strong>Defina limites</strong> para as categorias que mais pesam, na aba Limites.</li>
         <li><strong>Registre todo gasto na hora.</strong> Leva 5 segundos e evita surpresa no fim do mês.</li>
       </ol>
     </section>`;
@@ -520,7 +614,7 @@
     if (!items.length) return '';
     return `<section class="card">
       <div class="card-head"><h2 class="card-title">Fique de olho</h2>
-        <button class="link-btn" type="button" data-action="go-tab" data-tab="budget">Orçamento</button></div>
+        <button class="link-btn" type="button" data-action="go-tab" data-tab="budget">Ver limites</button></div>
       <ul class="alert-list">${items
         .map(({ c, limit, spent }) => {
           const st = budgetStatus(spent, limit);
@@ -541,7 +635,7 @@
     const max = rows[0][1];
     return `<section class="card">
       <div class="card-head"><div><h2 class="card-title">Para onde foi o dinheiro</h2>
-        <p class="card-sub">Toque numa categoria para ver os gastos</p></div></div>
+        <p class="card-sub">Toque numa categoria para ver cada gasto</p></div></div>
       <ul class="bars">${rows
         .map(([id, v]) => {
           const c = catById('expense', id);
@@ -570,7 +664,7 @@
   function trendDetail(m) {
     const { inc, exp, bal } = totals(txOfMonth(m));
     return `<strong>${esc(monthName(m))}</strong><br>
-      Receitas <strong class="num">${money(inc)}</strong> · Despesas <strong class="num">${money(exp)}</strong> ·
+      Entrou <strong class="num">${money(inc)}</strong> · Saiu <strong class="num">${money(exp)}</strong> ·
       Saldo <strong class="num ${bal < 0 ? 'neg' : 'pos'}">${money(bal)}</strong>`;
   }
 
@@ -583,13 +677,13 @@
     const h = (v) => ((v / top) * 100).toFixed(1);
     return `<section class="card">
       <div class="card-head"><h2 class="card-title">Últimos 6 meses</h2>
-        <div class="legend"><span><i class="swatch" style="background:var(--series-1)"></i>Receitas</span>
-          <span><i class="swatch" style="background:var(--series-2)"></i>Despesas</span></div></div>
-      <div class="trend" role="group" aria-label="Receitas e despesas nos últimos 6 meses">
+        <div class="legend"><span><i class="swatch" style="background:var(--series-1)"></i>Entrou</span>
+          <span><i class="swatch" style="background:var(--series-2)"></i>Saiu</span></div></div>
+      <div class="trend" role="group" aria-label="Quanto entrou e saiu nos últimos 6 meses">
         <div class="trend-grid" aria-hidden="true"><span class="num">${ui.hide ? '' : BRL_COMPACT.format(top / 100)}</span></div>
         ${data
           .map((d) => `<button class="trend-col${d.m === sel ? ' selected' : ''}" type="button" data-action="trend-sel"
-              data-month="${d.m}" aria-label="${esc(monthName(d.m))}: receitas ${money(d.inc)}, despesas ${money(d.exp)}">
+              data-month="${d.m}" aria-label="${esc(monthName(d.m))}: entrou ${money(d.inc)}, saiu ${money(d.exp)}">
             <span class="trend-bar inc" style="height:${h(d.inc)}%"></span>
             <span class="trend-bar exp" style="height:${h(d.exp)}%"></span>
           </button>`)
@@ -610,7 +704,7 @@
 
   function txRow(t) {
     const c = catById(t.type, t.category);
-    const meta = [c.name, t.installment && `parcela ${t.installment}`, t.recurring && 'fixa mensal'].filter(Boolean).join(' · ');
+    const meta = [c.name, t.installment && `parcela ${t.installment}`, t.recurring && 'todo mês'].filter(Boolean).join(' · ');
     return `<li><button class="tx" type="button" data-action="edit-tx" data-id="${esc(t.id)}">
       <span class="tx-icon" aria-hidden="true">${c.icon}</span>
       <span class="tx-main"><span class="tx-desc">${esc(t.description || c.name)}</span>
@@ -623,7 +717,7 @@
     const recent = sortTx(list).slice(0, 5);
     if (!recent.length) {
       return `<section class="card empty"><div class="empty-icon" aria-hidden="true">🗒️</div>
-        <h2>Nada lançado neste mês</h2><p>Toque no botão + para registrar uma receita ou despesa.</p></section>`;
+        <h2>Nada lançado neste mês</h2><p>Toque em “Adicionar” para registrar um gasto ou um ganho.</p></section>`;
     }
     return `<section class="card">
       <div class="card-head"><h2 class="card-title">Últimos lançamentos</h2>
@@ -639,8 +733,8 @@
       `<button class="chip${ui.filter === v ? ' active' : ''}" type="button" data-action="filter-type" data-value="${v}"
         aria-pressed="${ui.filter === v}">${label}</button>`;
     const cat = ui.category ? catById('expense', ui.category) : null;
-    return `${demoBanner()}<div class="toolbar">
-        <div class="chips">${chip('all', 'Todos')}${chip('expense', 'Despesas')}${chip('income', 'Receitas')}
+    return `${demoBanner()}${helpCard('transactions', 'Aqui fica tudo o que entrou e saiu no mês, como o extrato do banco. Toque num item para corrigir ou apagar.')}<div class="toolbar">
+        <div class="chips">${chip('all', 'Tudo')}${chip('expense', 'Gastos')}${chip('income', 'Ganhos')}
           ${cat ? `<button class="chip active" type="button" data-action="clear-cat" aria-label="Remover filtro ${esc(cat.name)}">${cat.icon} ${esc(cat.name)} ✕</button>` : ''}
         </div>
         <input id="txSearch" class="search" type="search" placeholder="Buscar por descrição" value="${esc(ui.query)}" autocomplete="off" aria-label="Buscar lançamentos">
@@ -657,14 +751,14 @@
       (!q || (t.description || catById(t.type, t.category).name).toLowerCase().includes(q)));
     const { inc, exp, bal } = totals(list);
     $('#txSummary').innerHTML = `<div class="summary-row">
-      <div><span>Receitas</span><strong class="num pos">${money(inc)}</strong></div>
-      <div><span>Despesas</span><strong class="num neg">${money(exp)}</strong></div>
+      <div><span>Entrou</span><strong class="num pos">${money(inc)}</strong></div>
+      <div><span>Saiu</span><strong class="num neg">${money(exp)}</strong></div>
       <div><span>Saldo</span><strong class="num">${money(bal)}</strong></div></div>`;
     if (!list.length) {
       $('#txList').innerHTML = `<div class="empty"><div class="empty-icon" aria-hidden="true">🔍</div>
-        <h2>Nenhum lançamento</h2><p>${q || ui.category || ui.filter !== 'all'
+        <h2>Nada por aqui</h2><p>${q || ui.category || ui.filter !== 'all'
           ? 'Nada encontrado com esses filtros neste mês.'
-          : 'Toque no botão + para registrar o primeiro lançamento do mês.'}</p></div>`;
+          : 'Toque em “Adicionar” para registrar o primeiro gasto ou ganho do mês.'}</p></div>`;
       return;
     }
     const days = [];
@@ -695,7 +789,7 @@
     if (totalLimit) {
       const st = budgetStatus(limitedSpent, totalLimit);
       summary = `<section class="card">
-        <div class="card-head"><h2 class="card-title">Orçamento do mês</h2><span class="badge ${st.cls}">${st.label}</span></div>
+        <div class="card-head"><h2 class="card-title">Limites do mês</h2><span class="badge ${st.cls}">${st.label}</span></div>
         <div class="progress" style="grid-column:auto"><div class="${st.cls}" style="width:${Math.min(100, st.pct * 100).toFixed(1)}%"></div></div>
         <div class="budget-nums" style="margin-top:8px">
           <span>Gasto <strong class="num">${money(limitedSpent)}</strong> de <span class="num">${money(totalLimit)}</span></span>
@@ -705,13 +799,13 @@
       </section>`;
     } else {
       summary = `<section class="card tip"><div class="tip-icon" aria-hidden="true">🎯</div><div>
-        <p><strong>Defina limites mensais por categoria.</strong> Toque numa categoria abaixo. O app avisa quando você chegar a 80% do limite.</p></div></section>`;
+        <p><strong>Escolha quanto quer gastar no máximo</strong> em cada categoria. Toque numa delas abaixo. O app avisa quando chegar perto.</p></div></section>`;
     }
 
     const rule = inc
       ? `<section class="card">
         <div class="card-head"><div><h2 class="card-title">Regra 50/30/20</h2>
-          <p class="card-sub">Sobre a renda de ${money(inc)} deste mês</p></div></div>
+          <p class="card-sub">Jeito simples de dividir a renda de ${money(inc)}: metade nas contas, 30% nos desejos e 20% guardado</p></div></div>
         ${GROUPS.map((g) => {
           const ids = CATEGORIES.expense.filter((c) => c.group === g.id).map((c) => c.id);
           const actual = sum(ids.map((id) => by[id] || 0));
@@ -761,8 +855,99 @@
       })
       .join('');
 
-    return `${demoBanner()}${summary}${rule}<section class="card">
+    return `${demoBanner()}${helpCard('budget', 'Defina quanto quer gastar no máximo por mês em cada categoria, como mercado e delivery. O app avisa quando chegar a 80% e quando passar.')}${summary}${rule}<section class="card">
       <div class="card-head"><h2 class="card-title">Limites por categoria</h2></div>${rows}</section>`;
+  }
+
+  // ----- Dívidas -----
+
+  function debtsHomeCard() {
+    const active = state.debts.filter((d) => d.paid < d.total);
+    if (!active.length) return '';
+    const next = active.slice().sort((a, b) => (a.nextDue < b.nextDue ? -1 : 1))[0];
+    const days = daysUntil(next.nextDue);
+    const left = sum(active.map((d) => debtInfo(d).leftAmount));
+    return `<section class="card tip"><div class="tip-icon" aria-hidden="true">🏦</div><div>
+      <p>Você ainda deve <strong class="num">${money(left)}</strong> em ${active.length} ${active.length === 1 ? 'dívida' : 'dívidas'}.
+      Próxima parcela: <strong class="num">${money(next.amount)}</strong> (${esc(next.name)}), ${dueText(days, next.nextDue)}.</p>
+      ${days <= 3 ? '<span class="badge warning">⚠ Separe o dinheiro</span> ' : ''}
+      <button class="link-btn" type="button" data-action="go-tab" data-tab="debts">Ver minhas dívidas</button></div></section>`;
+  }
+
+  function debtCard(d) {
+    const i = debtInfo(d);
+    let badge = '<span class="badge good">✓ Em dia</span>';
+    if (i.done) badge = '<span class="badge good">🎉 Quitada</span>';
+    else if (i.days <= 0) badge = '<span class="badge critical">⚠ Vence hoje</span>';
+    else if (i.days <= 5) badge = `<span class="badge warning">⏰ ${i.days === 1 ? 'Amanhã' : `Em ${i.days} dias`}</span>`;
+    const pct = d.paid / d.total;
+    return `<section class="card debt">
+      <div class="goal-head">
+        <span class="tx-icon" aria-hidden="true">${d.icon}</span>
+        <div style="min-width:0;flex:1"><h2 class="goal-name">${esc(d.name)}</h2>
+          <p class="card-sub">${i.done ? `${d.total} parcelas pagas` : `Próxima: parcela <strong>${i.current} de ${d.total}</strong>`}</p></div>
+        ${badge}
+      </div>
+      ${i.done ? '' : `<div class="debt-big"><span>Falta pagar</span><strong class="num">${money(i.leftAmount)}</strong></div>
+      <dl class="debt-stats">
+        <div><dt>Faltam</dt><dd>${i.left} ${i.left === 1 ? 'parcela' : 'parcelas'}</dd></div>
+        <div><dt>Cada parcela</dt><dd class="num">${money(d.amount)}</dd></div>
+        <div><dt>Próximo vencimento</dt><dd>${shortDate(d.nextDue)}${i.days > 0 ? ` <small>(${i.days === 1 ? 'amanhã' : `em ${i.days} dias`})</small>` : ' <small>(hoje)</small>'}</dd></div>
+        <div><dt>Última parcela</dt><dd>${esc(monthYear(i.lastYM))}</dd></div>
+      </dl>`}
+      <div class="progress" style="grid-column:auto"><div class="${i.done ? 'good' : 'neutral'}" style="width:${(pct * 100).toFixed(1)}%"></div></div>
+      <div class="goal-nums"><span>${d.paid} de ${d.total} pagas · <span class="num">${money(i.paidAmount)}</span></span>
+        <span>Total <span class="num">${money(i.totalAmount)}</span></span></div>
+      <div class="goal-actions">
+        ${i.done ? '' : `<button class="btn primary" type="button" data-action="pay-debt" data-id="${esc(d.id)}">✓ Paguei esta parcela</button>`}
+        <button class="btn" type="button" data-action="edit-debt" data-id="${esc(d.id)}">Editar</button>
+      </div>
+    </section>`;
+  }
+
+  function viewDebts() {
+    const help = helpCard('debts', 'Cadastre empréstimos, financiamentos e compras parceladas. O app conta sozinho quantas parcelas faltam, qual é a próxima e quanto falta pagar.');
+    if (!state.debts.length) {
+      return `${demoBanner()}${help}<section class="card empty"><div class="empty-icon" aria-hidden="true">🏦</div>
+        <h2>Nenhuma dívida cadastrada</h2>
+        <p>Tem empréstimo, financiamento ou compra parcelada? Cadastre aqui e acompanhe quanto falta.</p>
+        <button class="btn primary" type="button" data-action="new-debt">Cadastrar dívida</button></section>`;
+    }
+    const cur = currentMonth();
+    const active = state.debts.filter((d) => d.paid < d.total);
+    const infos = active.map(debtInfo);
+    const leftTotal = sum(infos.map((i) => i.leftAmount));
+    const thisMonth = sum(active.map((d, k) => (infos[k].inMonth(cur) ? d.amount : 0)));
+    const freeYM = infos.reduce((m, i) => (i.lastYM && i.lastYM > m ? i.lastYM : m), '');
+    const sorted = state.debts.slice().sort((a, b) => {
+      const da = a.paid >= a.total;
+      const db = b.paid >= b.total;
+      if (da !== db) return da ? 1 : -1;
+      return a.nextDue < b.nextDue ? -1 : 1;
+    });
+    const summary = active.length
+      ? `<section class="card hero" aria-label="Resumo das dívidas">
+          <p class="eyebrow">Total que falta pagar</p>
+          <div class="hero-value num">${money(leftTotal)}</div>
+          <div class="hero-split">
+            <div><span>Parcelas deste mês</span><strong class="num">${money(thisMonth)}</strong></div>
+            <div><span>Livre das dívidas em</span><strong>${esc(monthYear(freeYM))}</strong></div>
+          </div>
+        </section>`
+      : `<section class="card tip"><div class="tip-icon" aria-hidden="true">🎉</div><div>
+          <p><strong>Parabéns! Todas as dívidas estão quitadas.</strong> Que tal usar o valor das parcelas para guardar dinheiro numa meta?</p></div></section>`;
+    return `${demoBanner()}${help}${summary}${sorted.map(debtCard).join('')}
+      <button class="btn block" type="button" data-action="new-debt">+ Cadastrar dívida</button>
+      ${active.length ? `<section class="card tip"><div class="tip-icon" aria-hidden="true">💡</div><div>
+        <p><strong>Dica:</strong> se sobrar dinheiro, pergunte ao banco sobre <strong>antecipar parcelas</strong>.
+        Pagar antes costuma tirar juros e diminuir o total da dívida.</p></div></section>` : ''}`;
+  }
+
+  // Caixa de explicação no topo de cada aba; some quando a pessoa toca em "Entendi".
+  function helpCard(tab, text) {
+    if (state.settings.helpSeen[tab]) return '';
+    return `<section class="card help"><p>💬 ${text}</p>
+      <button class="link-btn" type="button" data-action="help-ok" data-tab="${tab}">Entendi</button></section>`;
   }
 
   // ----- Metas -----
@@ -776,7 +961,7 @@
           <strong class="num">${money(avg * 6)}</strong>. Comece por ela.</p></div></section>`
       : '';
     if (!state.goals.length) {
-      return `${demoBanner()}<section class="card empty"><div class="empty-icon" aria-hidden="true">🎯</div>
+      return `${demoBanner()}${helpCard('goals', 'Junte dinheiro para um objetivo, como uma reserva ou uma moto. O app diz quanto guardar por mês para chegar lá no prazo.')}<section class="card empty"><div class="empty-icon" aria-hidden="true">🎯</div>
         <h2>Nenhuma meta ainda</h2>
         <p>Guardar fica mais fácil com um objetivo: reserva de emergência, viagem, moto, curso.</p>
         <button class="btn primary" type="button" data-action="new-goal">Criar minha primeira meta</button></section>${reserveTip}`;
@@ -808,7 +993,7 @@
         </section>`;
       })
       .join('');
-    return `${demoBanner()}${cards}<button class="btn block" type="button" data-action="new-goal">+ Nova meta</button>${reserveTip}`;
+    return `${demoBanner()}${helpCard('goals', 'Junte dinheiro para um objetivo, como uma reserva ou uma moto. O app diz quanto guardar por mês para chegar lá no prazo.')}${cards}<button class="btn block" type="button" data-action="new-goal">+ Nova meta</button>${reserveTip}`;
   }
 
   // ---------- Painel inferior (formulários) ----------
@@ -859,29 +1044,30 @@
     let category = tx ? tx.category : type === 'income' ? 'salario' : 'mercado';
     let repeat = 'single';
 
-    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">${isNew ? 'Novo lançamento' : 'Editar lançamento'}</h2>
+    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">${isNew ? 'Adicionar' : 'Editar'}</h2>
       <form id="txForm" class="form" novalidate>
         <div class="segmented" id="typeSeg">
-          <button type="button" data-value="expense">Despesa</button>
-          <button type="button" data-value="income">Receita</button>
+          <button type="button" data-value="expense">💸 Gastei</button>
+          <button type="button" data-value="income">💰 Recebi</button>
         </div>
         <div class="field"><label for="txAmount">Valor</label>
           <input id="txAmount" class="money" inputmode="numeric" autocomplete="off" enterkeyhint="next"></div>
         <div class="field"><label for="txDesc">Descrição</label>
-          <input id="txDesc" maxlength="60" placeholder="Ex.: Mercado do mês" autocomplete="off" value="${esc(tx ? tx.description : '')}"></div>
+          <input id="txDesc" maxlength="60" placeholder="Ex.: Mercado do mês (opcional)" autocomplete="off" value="${esc(tx ? tx.description : '')}"></div>
         <div class="field"><span class="label" id="catLabel">Categoria</span>
           <div class="cat-grid" id="catGrid" role="radiogroup" aria-labelledby="catLabel"></div></div>
         <div class="field"><label for="txDate">Data</label>
           <input id="txDate" type="date" required value="${tx ? tx.date : defaultDate()}"></div>
-        ${isNew ? `<div class="field"><span class="label">Repetição</span>
+        ${isNew ? `<div class="field"><span class="label">Isso se repete?</span>
           <div class="segmented three" id="repeatSeg">
-            <button type="button" data-value="single" class="active">Única</button>
-            <button type="button" data-value="installments">Parcelada</button>
-            <button type="button" data-value="fixed">Fixa mensal</button>
+            <button type="button" data-value="single" class="active">Só uma vez</button>
+            <button type="button" data-value="installments">Parcelado</button>
+            <button type="button" data-value="fixed">Todo mês</button>
           </div></div>
         <div class="field" id="repeatField" hidden><label for="txRepeat" id="repeatLabel">Número de parcelas</label>
           <input id="txRepeat" type="number" min="2" max="60" value="2" inputmode="numeric">
-          <p class="hint" id="repeatHint"></p></div>` : tx.groupId ? `<p class="hint">Este lançamento faz parte de uma série (${tx.installment ? `parcela ${esc(tx.installment)}` : 'fixa mensal'}). Alterações valem só para ele.</p>` : ''}
+          <p class="hint" id="repeatHint"></p></div>` : tx.debtId ? '<p class="hint">Esta é uma parcela de dívida. Para mudar todas as parcelas, edite a dívida na aba Dívidas.</p>'
+          : tx.groupId ? `<p class="hint">Este lançamento faz parte de uma série (${tx.installment ? `parcela ${esc(tx.installment)}` : 'todo mês'}). Alterações valem só para ele.</p>` : ''}
         <div class="actions">
           <button class="btn primary block" type="submit">Salvar</button>
           ${isNew ? '' : '<button class="btn danger block" type="button" id="delBtn">Excluir</button><div id="confirmSlot"></div>'}
@@ -1010,7 +1196,7 @@
         }
         confirmBox($('#confirmSlot', root), tx.groupId
           ? 'Excluir só este lançamento ou este e os próximos da série?'
-          : 'Excluir este lançamento? Não dá para desfazer.', buttons);
+          : 'Excluir este lançamento?', buttons);
       });
     }
 
@@ -1164,6 +1350,168 @@
     if (isNew) $('#goalName', root).focus();
   }
 
+  function openDebtSheet(debt) {
+    const isNew = !debt;
+    let icon = debt ? debt.icon : DEBT_TYPES[0].icon;
+    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">${isNew ? 'Cadastrar dívida' : 'Editar dívida'}</h2>
+      <form id="debtForm" class="form" novalidate>
+        <div class="field"><span class="label" id="debtTypeLabel">Tipo</span>
+          <div class="cat-grid" id="debtType" role="radiogroup" aria-labelledby="debtTypeLabel">${DEBT_TYPES.map((t) => `
+            <button type="button" class="cat-btn${t.icon === icon ? ' active' : ''}" role="radio" aria-checked="${t.icon === icon}"
+              data-icon="${t.icon}"><span aria-hidden="true">${t.icon}</span><span>${t.name}</span></button>`).join('')}</div></div>
+        <div class="field"><label for="debtName">Nome (de quem é a dívida)</label>
+          <input id="debtName" maxlength="40" placeholder="Ex.: Empréstimo Banco do Brasil" autocomplete="off" value="${esc(debt ? debt.name : '')}"></div>
+        <div class="field"><label for="debtAmount">Valor de cada parcela</label>
+          <input id="debtAmount" class="money" inputmode="numeric" autocomplete="off"></div>
+        <div class="field-row">
+          <div class="field"><label for="debtTotal">Total de parcelas</label>
+            <input id="debtTotal" type="number" min="1" max="600" inputmode="numeric" placeholder="Ex.: 24" value="${debt ? debt.total : ''}"></div>
+          <div class="field"><label for="debtPaid">Quantas já paguei</label>
+            <input id="debtPaid" type="number" min="0" max="600" inputmode="numeric" value="${debt ? debt.paid : 0}"></div>
+        </div>
+        <div class="field"><label for="debtDue">Vencimento da próxima parcela</label>
+          <input id="debtDue" type="date" value="${debt ? debt.nextDue : todayISO()}"></div>
+        <div class="debt-preview" id="debtPreview" aria-live="polite"></div>
+        <label class="check"><input type="checkbox" id="debtLinked"${!debt || debt.linked ? ' checked' : ''}>
+          <span>Colocar as parcelas no extrato de cada mês (assim elas entram no “quanto posso gastar por dia”)</span></label>
+        <p class="hint">No dia do vencimento, o app conta a parcela como paga. Se pagar antes, toque em “Paguei esta parcela”.</p>
+        <div class="actions">
+          <button class="btn primary block" type="submit">Salvar dívida</button>
+          ${isNew ? '' : '<button class="btn danger block" type="button" id="delDebt">Excluir dívida</button><div id="confirmSlot"></div>'}
+        </div>
+      </form>`);
+
+    const amount = $('#debtAmount', root);
+    bindMoney(amount, debt ? debt.amount : 0);
+    const num = (id) => parseInt($(`#${id}`, root).value, 10);
+
+    function preview() {
+      const a = centsOf(amount);
+      const total = num('debtTotal');
+      const paid = num('debtPaid') || 0;
+      const due = $('#debtDue', root).value;
+      const box = $('#debtPreview', root);
+      if (!a || !total || total < 1) {
+        box.innerHTML = '<p>Preencha o valor da parcela e o total de parcelas para ver a conta.</p>';
+        return;
+      }
+      if (paid > total) {
+        box.innerHTML = '<p>⚠ Você pagou mais parcelas do que o total. Confira os números.</p>';
+        return;
+      }
+      const left = total - paid;
+      const lines = [
+        `📋 <strong>${total} parcelas de ${fmtMoney(a)}</strong> = ${fmtMoney(a * total)} no total`,
+        `✅ Já pago: ${paid} ${paid === 1 ? 'parcela' : 'parcelas'} (${fmtMoney(a * paid)})`,
+        left ? `⏳ <strong>Faltam ${left} ${left === 1 ? 'parcela' : 'parcelas'}: ${fmtMoney(a * left)}</strong>` : '🎉 <strong>Dívida quitada!</strong>',
+      ];
+      if (left && isISO(due)) {
+        lines.push(`➡️ Próxima: parcela ${paid + 1} de ${total}, em ${shortDate(due)}`);
+        lines.push(`🏁 Última parcela em ${monthYear(shiftMonth(monthOf(due), left - 1))}`);
+      }
+      box.innerHTML = lines.map((l) => `<p>${l}</p>`).join('');
+    }
+    preview();
+    ['input', 'change'].forEach((ev) => {
+      ['debtTotal', 'debtPaid', 'debtDue'].forEach((id) => $(`#${id}`, root).addEventListener(ev, preview));
+      amount.addEventListener(ev, preview);
+    });
+
+    $('#debtType', root).addEventListener('click', (e) => {
+      const b = e.target.closest('.cat-btn');
+      if (!b) return;
+      icon = b.dataset.icon;
+      $$('#debtType .cat-btn', root).forEach((x) => {
+        x.classList.toggle('active', x === b);
+        x.setAttribute('aria-checked', String(x === b));
+      });
+    });
+
+    $('#debtForm', root).addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = $('#debtName', root).value.trim();
+      const a = centsOf(amount);
+      const total = num('debtTotal');
+      const paid = num('debtPaid') || 0;
+      const due = $('#debtDue', root).value;
+      const fail = (msg, id) => { toast(msg); $(`#${id}`, root).focus(); };
+      if (!name) return fail('Dê um nome para a dívida, ex.: Empréstimo Nubank.', 'debtName');
+      if (a <= 0) return fail('Digite o valor de cada parcela.', 'debtAmount');
+      if (!total || total < 1 || total > 600) return fail('Digite o total de parcelas (de 1 a 600).', 'debtTotal');
+      if (paid < 0 || paid > total) return fail('As parcelas pagas não podem passar do total.', 'debtPaid');
+      if (!isISO(due)) return fail('Escolha a data de vencimento da próxima parcela.', 'debtDue');
+      const data = {
+        name, icon, amount: a, total, paid,
+        nextDue: due, dueDay: Number(due.slice(8, 10)), linked: $('#debtLinked', root).checked,
+      };
+      let d = debt;
+      if (isNew) {
+        d = { id: uid(), createdAt: Date.now(), ...data };
+        state.debts.push(d);
+      } else {
+        Object.assign(d, data);
+      }
+      syncDebtTx(d);
+      advanceDebts();
+      save();
+      closeSheet();
+      render();
+      toast(isNew ? 'Dívida cadastrada' : 'Dívida atualizada');
+    });
+
+    if (!isNew) {
+      $('#delDebt', root).addEventListener('click', () => {
+        confirmBox($('#confirmSlot', root), 'Excluir esta dívida? As parcelas que ainda não venceram saem do extrato. As já pagas continuam lá.', [
+          { label: 'Cancelar', onClick: () => { $('#confirmSlot', root).innerHTML = ''; } },
+          {
+            label: 'Excluir', cls: 'danger', onClick: () => {
+              const before = { debts: state.debts.slice(), transactions: state.transactions.slice() };
+              state.debts = state.debts.filter((x) => x.id !== debt.id);
+              state.transactions = state.transactions.filter((t) => !(t.debtId === debt.id && t.debtNo > debt.paid));
+              save();
+              closeSheet();
+              render();
+              toast('Dívida excluída', {
+                label: 'Desfazer',
+                run: () => {
+                  Object.assign(state, before);
+                  save();
+                  render();
+                  toast('Dívida restaurada');
+                },
+              });
+            },
+          },
+        ]);
+      });
+    }
+    if (isNew) $('#debtName', root).focus();
+  }
+
+  // "Paguei esta parcela": conta a parcela como paga e, se ela estava no extrato
+  // com data futura, traz o lançamento para hoje.
+  function payDebt(d) {
+    const before = { paid: d.paid, nextDue: d.nextDue };
+    const tx = state.transactions.find((t) => t.debtId === d.id && t.debtNo === d.paid + 1);
+    const txDate = tx ? tx.date : null;
+    if (tx && tx.date > todayISO()) tx.date = todayISO();
+    d.paid += 1;
+    d.nextDue = dueIn(shiftMonth(monthOf(d.nextDue), 1), d.dueDay);
+    save();
+    render();
+    const left = d.total - d.paid;
+    toast(left ? `Parcela ${d.paid} de ${d.total} paga. Faltam ${left}.` : 'Última parcela paga. Dívida quitada! 🎉', {
+      label: 'Desfazer',
+      run: () => {
+        Object.assign(d, before);
+        if (tx) tx.date = txDate;
+        save();
+        render();
+        toast('Pagamento desfeito');
+      },
+    });
+  }
+
   function openDepositSheet(goal) {
     let mode = 'in';
     const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">${goal.icon} ${esc(goal.name)}</h2>
@@ -1305,7 +1653,7 @@
   }
 
   function openSettings() {
-    const empty = !state.transactions.length && !state.goals.length;
+    const empty = !state.transactions.length && !state.goals.length && !state.debts.length;
     const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
     const last = state.settings.lastBackupAt;
     const lockOpt = (v, label) => `<option value="${v}"${state.settings.lockAfter === v ? ' selected' : ''}>${label}</option>`;
@@ -1778,7 +2126,14 @@
       { id: uid(), name: 'Reserva de emergência', icon: '🛡️', target: 1200000, saved: 360000, deadline: shiftMonth(cur, 18), createdAt: Date.now() },
       { id: uid(), name: 'Moto nova', icon: '🏍️', target: 1500000, saved: 210000, deadline: shiftMonth(cur, 24), createdAt: Date.now() },
     ];
+    // Próximo vencimento a partir de hoje para o dia informado.
+    const nextOn = (day) => dueIn(Number(today.slice(8, 10)) > day ? shiftMonth(cur, 1) : cur, day);
+    s.debts = [
+      { id: uid(), name: 'Empréstimo pessoal', icon: '🏦', amount: 38990, total: 12, paid: 4, dueDay: 15, nextDue: nextOn(15), linked: true, createdAt: Date.now() },
+      { id: uid(), name: 'Celular parcelado', icon: '💳', amount: 15990, total: 10, paid: 7, dueDay: 28, nextDue: nextOn(28), linked: true, createdAt: Date.now() },
+    ];
     state = s;
+    s.debts.forEach(syncDebtTx);
     save();
     ui.month = cur;
     ui.tab = 'home';
@@ -1859,6 +2214,15 @@
       openTxSheet(null, 'income');
     } else if (action === 'load-demo') {
       loadDemo();
+    } else if (action === 'new-debt') {
+      openDebtSheet();
+    } else if (action === 'edit-debt' || action === 'pay-debt') {
+      const debt = state.debts.find((d) => d.id === el.dataset.id);
+      if (debt) (action === 'pay-debt' ? payDebt : openDebtSheet)(debt);
+    } else if (action === 'help-ok') {
+      state.settings.helpSeen[el.dataset.tab] = true;
+      save();
+      render();
     } else if (action === 'backup-now') {
       exportBackup();
     } else if (action === 'clear-demo') {
@@ -1900,7 +2264,11 @@
     save();
     render();
   });
-  $('#fab').addEventListener('click', () => openTxSheet());
+  $('#fab').addEventListener('click', () => {
+    if (ui.tab === 'debts') openDebtSheet();
+    else if (ui.tab === 'goals') openGoalSheet();
+    else openTxSheet();
+  });
   $('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') closeSheet(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
 
@@ -1912,7 +2280,7 @@
       ? { x: t.clientX, y: t.clientY, at: Date.now() } : null;
   }, { passive: true });
   $('#view').addEventListener('touchend', (e) => {
-    if (!swipe || ui.tab === 'goals') return;
+    if (!swipe || ui.tab === 'goals' || ui.tab === 'debts') return;
     const t = e.changedTouches[0];
     const dx = t.clientX - swipe.x;
     const dy = t.clientY - swipe.y;
@@ -1957,6 +2325,8 @@
       lock();
       return;
     }
+    advanceDebts();
+    render();
     snapshotToday().catch(() => {});
     if (swRegistration) swRegistration.update().catch(() => {});
   });
@@ -2018,6 +2388,7 @@
   // ---------- Início ----------
 
   function start() {
+    advanceDebts();
     render();
     snapshotToday().catch(() => {});
   }
@@ -2026,7 +2397,7 @@
     showLock();
   } else {
     state = parseState(readRaw());
-    if (window.MEUBOLSO_PREVIEW && !state.transactions.length && !state.goals.length) loadDemo();
+    if (window.MEUBOLSO_PREVIEW && !state.transactions.length && !state.goals.length && !state.debts.length) loadDemo();
     else start();
   }
 })();

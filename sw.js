@@ -1,6 +1,6 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente a versão para os celulares baixarem a nova.
-const CACHE = 'meubolso-v2';
+const CACHE = 'meubolso-v3';
 const ASSETS = [
   './',
   './index.html',

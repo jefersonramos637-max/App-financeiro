@@ -584,20 +584,23 @@ svg { display: block; }
 /* Botão flutuante */
 .fab {
   position: fixed;
-  right: calc(18px + env(safe-area-inset-right, 0px));
-  bottom: calc(var(--tabbar-h) + 18px + env(safe-area-inset-bottom, 0px));
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  bottom: calc(var(--tabbar-h) + 16px + env(safe-area-inset-bottom, 0px));
   z-index: 25;
-  width: 58px;
-  height: 58px;
+  height: 54px;
+  padding: 0 20px 0 16px;
   border: 0;
-  border-radius: 18px;
-  display: grid;
-  place-items: center;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 800;
+  font-size: 1rem;
   background: var(--accent);
   color: var(--accent-ink);
   box-shadow: var(--shadow);
 }
-.fab svg { width: 26px; height: 26px; stroke-width: 2.5; }
+.fab svg { width: 22px; height: 22px; stroke-width: 2.8; }
 .fab:active { transform: scale(0.96); }
 
 /* Abas */
@@ -608,7 +611,7 @@ svg { display: block; }
   bottom: 0;
   z-index: 25;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   background: var(--surface);
   border-top: 1px solid var(--border);
   padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -624,9 +627,10 @@ svg { display: block; }
   align-items: center;
   justify-content: center;
   gap: 3px;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 600;
   color: var(--muted);
+  min-width: 0;
 }
 .tabbar button.active { color: var(--accent); }
 
@@ -787,6 +791,44 @@ svg { display: block; }
 }
 .keypad button:active { background: var(--accent-soft); }
 .keypad button[data-key="back"], .keypad button[data-key="ok"] { background: transparent; font-size: 1.3rem; }
+
+/* Dívidas */
+.debt { display: flex; flex-direction: column; gap: 12px; }
+.debt .goal-head .badge { align-self: flex-start; }
+.debt-big { display: flex; flex-direction: column; }
+.debt-big span { font-size: 0.82rem; color: var(--muted); font-weight: 600; }
+.debt-big strong { font-size: 1.9rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; overflow-wrap: anywhere; }
+.debt-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+}
+.debt-stats div { background: var(--surface-2); border-radius: 12px; padding: 8px 12px; min-width: 0; }
+.debt-stats dt { font-size: 0.75rem; color: var(--muted); font-weight: 600; }
+.debt-stats dd { margin: 2px 0 0; font-weight: 700; overflow-wrap: anywhere; }
+.debt-stats small { color: var(--text-2); font-weight: 500; }
+.debt-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  font-size: 0.9rem;
+}
+.debt-preview p { margin: 0; }
+
+/* Explicação de cada aba */
+.help {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+.help p { margin: 0; color: var(--text); }
+.help .link-btn { align-self: flex-start; }
 
 @media (prefers-reduced-motion: reduce) {
   .sheet, .view.slide-next, .view.slide-prev, .pin-dots.shake { animation: none; }

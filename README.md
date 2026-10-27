@@ -10,7 +10,12 @@ instalado na tela inicial como um app e continua funcionando sem internet.
 - **Lançamentos**: receitas e despesas por categoria, com busca e filtros.
   - **Parcelado**: divide uma compra em N parcelas nos próximos meses (ex.: 10× no cartão).
   - **Fixa mensal**: repete contas fixas (aluguel, internet) pelos próximos meses.
-- **Orçamento**: limite mensal por categoria, com aviso ao chegar a 80% e quando estoura.
+- **Dívidas**: cadastre empréstimos, financiamentos e compras parceladas com o valor da parcela,
+  o total de parcelas e quantas já pagou. O app mostra sozinho qual é a próxima parcela
+  (ex.: 5 de 12), quantas faltam, quanto falta pagar, quando termina e avisa perto do vencimento.
+  No dia do vencimento a parcela conta como paga; se pagar antes, toque em “Paguei esta parcela”.
+  As parcelas podem entrar no extrato de cada mês.
+- **Limites**: limite mensal por categoria, com aviso ao chegar a 80% e quando estoura.
 - **Regra 50/30/20**: compara seus gastos com o ideal (50% necessidades, 30% desejos, 20% futuro).
 - **Metas**: quanto guardar por mês para chegar no objetivo até o prazo, e o tamanho ideal da
   reserva de emergência com base no seu custo de vida.
