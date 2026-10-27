@@ -70,7 +70,7 @@ atualizar (cartões com fatura em aberto, salário, dívidas e contas fixas). Na
 mesmo código de novo não duplica, e tudo passa pela mesma validação do app. Exemplo:
 
 ```json
-{"meubolso":"add","cards":[{"name":"Nubank","dueDay":15,"closingDay":8,"limit":20000,"openInvoice":19752}]}
+{"meubolso":"add","cards":[{"name":"Meu cartão","dueDay":10,"closingDay":3,"limit":150000,"openInvoice":42000}]}
 ```
 
 Valores em centavos; datas no formato AAAA-MM-DD.
