@@ -664,7 +664,7 @@ svg { display: block; }
 /* Painel inferior (sheet) */
 .sheet-backdrop {
   position: fixed;
-  inset: 0 0 var(--kb, 0px) 0;
+  inset: 0;
   z-index: 40;
   background: rgba(0, 0, 0, 0.45);
   display: flex;
@@ -674,7 +674,7 @@ svg { display: block; }
 .sheet {
   width: 100%;
   max-width: 640px;
-  max-height: min(92vh, calc(var(--vh, 100vh) - 12px));
+  max-height: 92vh;
   overflow-y: auto;
   overscroll-behavior: none;
   touch-action: pan-y;
@@ -688,6 +688,8 @@ svg { display: block; }
   animation: sheet-in 0.22s ease-out;
   transition: transform 0.2s ease-out;
 }
+.sheet-backdrop.typing { align-items: flex-start; }
+.sheet-backdrop.typing .sheet { max-height: 52vh; border-radius: 0 0 20px 20px; padding-top: calc(12px + env(safe-area-inset-top, 0px)); animation: none; }
 .sheet.dragging { transition: none; }
 .sheet-close {
   position: absolute;

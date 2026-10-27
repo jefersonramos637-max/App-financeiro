@@ -2421,6 +2421,7 @@
   }
   function closeSheet() {
     $('#sheet').hidden = true;
+    $('#sheet').classList.remove('typing');
     $('#sheetContent').innerHTML = '';
     document.body.style.overflow = '';
     if (lastFocus && lastFocus.focus) lastFocus.focus({ preventScroll: true });
@@ -4431,22 +4432,11 @@
   }, { passive: false });
   // Se o teclado empurrar a página, volta para o lugar.
   window.addEventListener('scroll', () => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); }, { passive: true });
-  // Com o teclado aberto, o painel sobe junto e fica inteiro acima dele.
-  const vv = window.visualViewport;
-  if (vv) {
-    const fitKeyboard = () => {
-      const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
-      document.documentElement.style.setProperty('--kb', `${kb}px`);
-      document.documentElement.style.setProperty('--vh', `${Math.round(vv.height)}px`);
-      if (kb > 0) {
-        const f = document.activeElement;
-        if (f && f.closest && f.closest('.sheet')) f.scrollIntoView({ block: 'center' });
-      }
-    };
-    vv.addEventListener('resize', fitKeyboard);
-    vv.addEventListener('scroll', fitKeyboard);
-    fitKeyboard();
-  }
+  // Ao digitar, o painel vai para o topo da tela, longe do teclado (que cobre a parte de baixo).
+  const sheetBack = $('#sheet');
+  const typing = () => { const f = document.activeElement; return !!(f && f.closest && f.closest('.sheet') && /^(INPUT|TEXTAREA|SELECT)$/.test(f.tagName)); };
+  sheetBack.addEventListener('focusin', () => { if (typing()) sheetBack.classList.add('typing'); });
+  sheetBack.addEventListener('focusout', () => setTimeout(() => { if (!typing()) sheetBack.classList.remove('typing'); }, 80));
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
 
   // Arrastar para os lados troca o mês.

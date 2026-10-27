@@ -1,10 +1,9 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.17.1';
+const VERSION = '1.17.2';
 const NOTES = [
-  'Corrigido: ao colar o código do assistente, o campo ficava escondido atrás do teclado do iPhone',
-  'Os painéis agora sobem junto com o teclado e ficam inteiros à vista',
+  'Corrigido: ao digitar ou colar em um painel, ele agora vai para o topo da tela e não fica mais escondido atrás do teclado',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [
