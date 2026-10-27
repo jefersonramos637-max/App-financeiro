@@ -571,6 +571,73 @@
     return { text: await decryptEnvelope(env, key), key, salt };
   }
 
+  // ----- Face ID (WebAuthn + extensão PRF) -----
+  // A chave dos dados fica guardada embrulhada por um segredo que só o Face ID libera (PRF do passkey).
+  // O embrulho vive fora do estado cifrado, mas sem o Face ID do aparelho ele não abre.
+
+  const FACE_KEY = 'meubolso:v1:faceid';
+  const faceStored = () => {
+    const o = parseJSON((() => { try { return localStorage.getItem(FACE_KEY); } catch { return null; } })());
+    return o && typeof o.id === 'string' && typeof o.data === 'string' ? o : null;
+  };
+  const faceDisable = () => { try { localStorage.removeItem(FACE_KEY); } catch { /* nada */ } };
+  const faceAvailable = () => !!(window.PublicKeyCredential && navigator.credentials && window.isSecureContext);
+
+  async function deriveRaw(pin, salt, iterations) {
+    const base = await crypto.subtle.importKey('raw', textEnc.encode(pin), 'PBKDF2', false, ['deriveBits']);
+    return crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, base, 256);
+  }
+
+  async function prfSecret(credId, prfSalt) {
+    const cred = await navigator.credentials.get({ publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: [{ type: 'public-key', id: credId }],
+      userVerification: 'required', timeout: 60000,
+      extensions: { prf: { eval: { first: prfSalt } } },
+    } });
+    const out = cred && cred.getClientExtensionResults().prf;
+    if (!out || !out.results || !out.results.first) throw new Error('prf');
+    return crypto.subtle.importKey('raw', out.results.first, 'AES-GCM', false, ['encrypt', 'decrypt']);
+  }
+
+  // Liga o Face ID: confere o PIN, cria o passkey e guarda a chave embrulhada.
+  async function faceEnable(pin) {
+    const env = storedEnvelope();
+    if (!env) throw new Error('nopin');
+    await openEnvelope(env, pin);
+    const raw = await deriveRaw(pin, fromB64(env.salt), env.iter || PBKDF2_ITERATIONS);
+    const prfSalt = crypto.getRandomValues(new Uint8Array(32));
+    const made = await navigator.credentials.create({ publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      rp: { name: 'Meu Bolso' },
+      user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'meubolso', displayName: 'Meu Bolso' },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'preferred' },
+      timeout: 60000,
+      extensions: { prf: { eval: { first: prfSalt } } },
+    } });
+    const ext = made.getClientExtensionResults().prf;
+    if (!ext || ext.enabled === false) throw new Error('noprf');
+    const wrapKey = await prfSecret(made.rawId, prfSalt);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, wrapKey, raw);
+    localStorage.setItem(FACE_KEY, JSON.stringify({ id: toB64(made.rawId), salt: toB64(prfSalt), iv: toB64(iv), data: toB64(data), env: env.salt }));
+  }
+
+  // Abre os dados com o Face ID. Lança erro se cancelar ou se o PIN mudou desde que o Face ID foi ligado.
+  async function faceUnlock(env) {
+    const st = faceStored();
+    if (!st) throw new Error('noface');
+    if (st.env !== env.salt) { faceDisable(); throw new Error('stale'); }
+    const wrapKey = await prfSecret(fromB64(st.id), fromB64(st.salt));
+    let raw;
+    try {
+      raw = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(st.iv) }, wrapKey, fromB64(st.data));
+    } catch { faceDisable(); throw new Error('stale'); }
+    const key = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
+    return { text: await decryptEnvelope(env, key), key, salt: fromB64(env.salt) };
+  }
+
   // ---------- Armazenamento ----------
 
   const parseJSON = (s) => {
@@ -3656,6 +3723,9 @@
           <button class="btn" type="button" id="lockNow">Bloquear agora</button>
           <div class="field"><label for="lockAfter">Bloquear automaticamente ao sair do app</label>
             <select id="lockAfter">${lockOpt(0, 'Imediatamente')}${lockOpt(60, 'Depois de 1 minuto')}${lockOpt(300, 'Depois de 5 minutos')}</select></div>
+          ${faceAvailable() ? (faceStored()
+            ? '<p class="hint">🙂 Face ID ativo: você abre o app só olhando para o iPhone.</p><button class="btn" type="button" id="faceOff">Desativar Face ID</button>'
+            : '<button class="btn" type="button" id="faceOn">🙂 Desbloquear com Face ID</button>') : ''}
           <button class="btn" type="button" id="changePin">Trocar PIN</button>
           <button class="btn" type="button" id="removePin">Remover PIN</button>` : `
           <button class="btn primary" type="button" id="createPin">🔒 Proteger com PIN</button>
@@ -3745,6 +3815,8 @@
     on('seeNews', () => showWhatsNew(currentInfo, false));
     on('createPin', () => openPinSheet('create'));
     on('changePin', () => openPinSheet('change'));
+    on('faceOn', () => openFaceSheet());
+    on('faceOff', () => { faceDisable(); toast('Face ID desativado'); openSettings(); });
     on('removePin', () => openPinSheet('remove'));
     on('lockNow', () => lock());
     $('#backupDaily', root).addEventListener('change', (e) => {
@@ -3907,6 +3979,36 @@
     });
   }
 
+  // Pede o PIN uma vez e liga o Face ID.
+  function openFaceSheet() {
+    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">Desbloquear com Face ID</h2>
+      <form id="faceForm" class="form" novalidate>
+        <p class="hint">Digite seu PIN uma vez para ligar. Depois, ao abrir o app, é só olhar para o iPhone. O PIN continua valendo como reserva.</p>
+        <div class="field"><label for="facePin">Seu PIN</label>
+          <input id="facePin" class="pin-input" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off"></div>
+        <button class="btn primary block" type="submit" id="faceSubmit">Ligar Face ID</button>
+      </form>`);
+    $('#faceForm', root).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = $('#faceSubmit', root);
+      btn.disabled = true;
+      btn.textContent = 'Aguarde…';
+      try {
+        await faceEnable($('#facePin', root).value);
+        closeSheet();
+        toast('Face ID ligado ✓');
+        openSettings();
+      } catch (err) {
+        const m = String(err && err.message);
+        toast(m === 'noprf' || m === 'prf' ? 'Este iPhone ainda não permite Face ID neste app. Atualize o iOS e tente de novo.'
+          : err && err.name === 'NotAllowedError' ? 'Face ID cancelado. Tente de novo.'
+          : err && err.name === 'OperationError' ? 'PIN incorreto.' : 'Não consegui ligar o Face ID.');
+        btn.disabled = false;
+        btn.textContent = 'Ligar Face ID';
+      }
+    });
+  }
+
   // Criar, trocar ou remover o PIN.
   function openPinSheet(mode) {
     const needCurrent = mode !== 'create';
@@ -3947,6 +4049,7 @@
             return;
           }
         }
+        faceDisable();
         const oldKey = cryptoKey;
         if (needNew) {
           cryptoSalt = crypto.getRandomValues(new Uint8Array(16));
@@ -3961,7 +4064,7 @@
         await reencodeSnapshots(oldKey, cryptoKey, cryptoSalt, pinLength);
         closeSheet();
         render();
-        toast({ create: 'PIN criado. Seus dados estão protegidos 🔒', change: 'PIN trocado', remove: 'PIN removido' }[mode]);
+        toast({ create: 'PIN criado. Seus dados estão protegidos 🔒', change: 'PIN trocado. Ligue o Face ID de novo em ⚙', remove: 'PIN removido' }[mode]);
       } finally {
         btn.disabled = false;
         btn.textContent = mode === 'remove' ? 'Remover PIN' : 'Salvar PIN';
@@ -4177,6 +4280,7 @@
         <button type="button" data-key="0">0</button>
         <button type="button" data-key="back" aria-label="Apagar">⌫</button>
       </div>
+      ${faceAvailable() && faceStored() ? '<button class="btn primary" type="button" id="faceBtn">🙂 Entrar com Face ID</button>' : ''}
       <button class="link-btn" type="button" id="forgotPin">Esqueci meu PIN</button>
       <div id="forgotSlot"></div>
     </div>`;
@@ -4189,6 +4293,33 @@
       $('#pinDots', el).innerHTML = Array.from({ length: total }, (_, i) => `<span class="${i < entry.length ? 'on' : ''}"></span>`).join('');
     };
     dots();
+
+    function opened({ text, key, salt }) {
+      cryptoKey = key;
+      cryptoSalt = salt;
+      pinLength = len;
+      state = parseState(text);
+      writeThrottle({ fails: 0, until: 0 });
+      el.hidden = true;
+      el.innerHTML = '';
+      setLocked(false);
+      document.removeEventListener('keydown', onKey);
+      start();
+    }
+
+    async function tryFace(auto) {
+      if (busy) return;
+      busy = true;
+      try {
+        opened(await faceUnlock(env));
+      } catch (err) {
+        if (!auto) msg.textContent = err && err.message === 'stale' ? 'O Face ID precisa ser ligado de novo. Use o PIN.' : 'Não deu certo. Tente de novo ou use o PIN.';
+        const fb = $('#faceBtn', el);
+        if (fb && err && err.message === 'stale') fb.remove();
+      } finally {
+        busy = false;
+      }
+    }
 
     async function tryUnlock() {
       const th = readThrottle();
@@ -4243,6 +4374,11 @@
       else if (e.key === 'Enter') press('ok');
     }
     document.addEventListener('keydown', onKey);
+    const faceBtn = $('#faceBtn', el);
+    if (faceBtn) {
+      faceBtn.addEventListener('click', () => tryFace(false));
+      tryFace(true);
+    }
     $('.keypad', el).addEventListener('click', (e) => {
       const b = e.target.closest('button');
       if (b) press(b.dataset.key);

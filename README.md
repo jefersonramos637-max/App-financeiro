@@ -133,3 +133,6 @@ E abra `http://localhost:8000`.
 
 ## Conselheiro (aba Dívidas)
 O plano para quitar agora mostra um passo a passo (fatura do cartão, parcelas, propostas, reserva mínima) e, depois da última dívida, quanto o mesmo valor rende guardado todo mês. O valor que sobra pode ser informado por quinzena ou por mês.
+
+## Face ID
+Com o PIN ativo, em ⚙ → Segurança dá para ligar o Face ID (passkey do iPhone com a extensão PRF). A chave dos dados fica embrulhada por um segredo que só o Face ID libera. Se o iOS não suportar a extensão, o app avisa e segue só com o PIN. Trocar ou remover o PIN desliga o Face ID.
