@@ -1,12 +1,12 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.12.0';
+const VERSION = '1.13.0';
 const NOTES = [
-  'Dívidas em atraso (negativadas): valor único, sem parcelas, com as propostas de desconto do Serasa ou do banco',
-  'Mostra o desconto de cada proposta e quanto você economiza pagando à vista',
-  'O plano para quitar inclui as dívidas em atraso, pela melhor proposta',
-  'O código do assistente aceita dívidas em atraso e propostas',
+  'Nas metas, “Como chegar lá”: quanto guardar por mês, em quanto tempo chega e quanto rende',
+  'Guia de onde guardar com segurança: Tesouro Selic, CDB, LCI e LCA, conforme o prazo da meta',
+  'Simule qualquer valor por mês e veja a data em que a meta fica pronta',
+  'Correção: o app não recarrega mais sozinho na primeira abertura',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [

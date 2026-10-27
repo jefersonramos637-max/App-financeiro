@@ -147,7 +147,7 @@
   const LOCK_OPTIONS = [0, 60, 300];
   const MAX_CENTS = 1e11;
   const defaultSettings = () => ({
-    hideValues: false, lockAfter: 60, lastBackupAt: 0, helpSeen: {}, debtExtra: 0, debtStrategy: '', backupDaily: true, backupSnooze: '',
+    hideValues: false, lockAfter: 60, lastBackupAt: 0, helpSeen: {}, debtExtra: 0, debtStrategy: '', backupDaily: true, backupSnooze: '', goalRate: 10,
   });
   const defaultState = () => ({
     version: 5, transactions: [], budgets: {}, goals: [], debts: [], cards: [], salary: null, demo: false, settings: defaultSettings(),
@@ -169,6 +169,7 @@
       helpSeen: Object.fromEntries(HELP_TABS.filter((t) => rs.helpSeen && rs.helpSeen[t] === true).map((t) => [t, true])),
       debtExtra: Number.isInteger(rs.debtExtra) && rs.debtExtra >= 0 && rs.debtExtra <= MAX_CENTS ? rs.debtExtra : 0,
       debtStrategy: ['fast', 'interest'].includes(rs.debtStrategy) ? rs.debtStrategy : '',
+      goalRate: Number.isFinite(rs.goalRate) && rs.goalRate >= 0 && rs.goalRate <= 30 ? Math.round(rs.goalRate * 100) / 100 : 10,
       backupDaily: rs.backupDaily !== false,
       backupSnooze: isISO(rs.backupSnooze) ? rs.backupSnooze : '',
     };
@@ -1989,10 +1990,194 @@
             <button class="btn primary" type="button" data-action="deposit" data-id="${esc(g.id)}">Guardar</button>
             <button class="btn" type="button" data-action="edit-goal" data-id="${esc(g.id)}">Editar</button>
           </div>
+          <button class="btn block" type="button" data-action="goal-plan" data-id="${esc(g.id)}">📈 Como chegar lá</button>
         </section>`;
       })
       .join('');
     return `${demoBanner()}${helpCard('goals', 'Junte dinheiro para um objetivo, como uma reserva ou uma moto. O app diz quanto guardar por mês para chegar lá no prazo.')}${cards}<button class="btn block" type="button" data-action="new-goal">+ Nova meta</button>${reserveTip}`;
+  }
+
+  // ----- Como chegar na meta: simulador e guia de onde guardar -----
+  // Depósito no fim de cada mês, rendimento líquido anual informado pela pessoa (já descontado o IR).
+
+  const monthlyRate = (annualPct) => (1 + annualPct / 100) ** (1 / 12) - 1;
+
+  // Quanto tempo leva para chegar na meta guardando `monthly` por mês.
+  function monthsToGoal(g, monthly, annualPct) {
+    const i = monthlyRate(annualPct);
+    let bal = g.saved;
+    let months = 0;
+    while (bal < g.target && months < 600) {
+      bal = bal * (1 + i) + monthly;
+      months += 1;
+      if (monthly <= 0 && i <= 0) return null;
+    }
+    return bal >= g.target ? { months, final: bal, deposited: monthly * months } : null;
+  }
+
+  // Quanto guardar por mês para chegar em `months` meses.
+  function monthlyNeeded(g, months, annualPct) {
+    const i = monthlyRate(annualPct);
+    const grow = (1 + i) ** months;
+    const need = g.target - g.saved * grow;
+    if (need <= 0) return 0;
+    return i === 0 ? need / months : (need * i) / (grow - 1);
+  }
+
+  const roundUp = (cents, step = 1000) => Math.max(step, Math.ceil(cents / step) * step);
+
+  function timeText(months) {
+    if (months === null) return 'mais de 50 anos';
+    const y = Math.floor(months / 12);
+    const m = months % 12;
+    if (!y) return `${m} ${m === 1 ? 'mês' : 'meses'}`;
+    return `${y} ${y === 1 ? 'ano' : 'anos'}${m ? ` e ${m} ${m === 1 ? 'mês' : 'meses'}` : ''}`;
+  }
+
+  // Quanto dá para guardar por mês sem apertar: 20% da renda (regra 50/30/20).
+  function suggestedSaving() {
+    const incomes = state.salary ? sum(state.salary.paydays.map((p) => p.amount)) : 0;
+    if (incomes) return { value: Math.floor((incomes * 0.2) / 1000) * 1000, source: 'do seu salário' };
+    const months = [1, 2, 3].map((k) => shiftMonth(currentMonth(), -k));
+    const vals = months.map((m) => totals(txOfMonth(m)).inc).filter((v) => v > 0);
+    if (!vals.length) return null;
+    return { value: Math.floor((sum(vals) / vals.length) * 0.2 / 1000) * 1000, source: 'da sua renda média' };
+  }
+
+  const GUIDE = {
+    short: {
+      title: 'Para até 1 ano (ou reserva de emergência)',
+      items: [
+        ['Tesouro Selic', 'Título do governo, o mais seguro do país. Pode resgatar quando quiser (cai no dia seguinte) e rende perto da Selic. Comece a partir de uns R$ 30.'],
+        ['CDB com liquidez diária (100% do CDI ou mais)', 'Banco paga e o FGC garante até R$ 250 mil por CPF em cada instituição. Resgate a qualquer dia. Procure “100% do CDI” ou mais.'],
+        ['Conta remunerada (100% do CDI)', 'Mais prática: o dinheiro rende na própria conta. Confira se é 100% do CDI e se tem garantia do FGC.'],
+      ],
+    },
+    mid: {
+      title: 'Para 1 a 3 anos',
+      items: [
+        ['CDB com vencimento (pós-fixado)', 'Rende mais que o de liquidez diária se você deixar até a data. Escolha vencimento perto da data da sua meta.'],
+        ['LCI ou LCA', 'Não pagam Imposto de Renda e têm FGC. Costumam ter carência de 90 dias ou mais. Compare a taxa com um CDB, já descontando o imposto dele.'],
+        ['Tesouro Prefixado', 'Você sabe quanto vai receber se levar até o fim. Se vender antes, o preço pode cair, então só use se não precisar do dinheiro antes.'],
+      ],
+    },
+    long: {
+      title: 'Para mais de 3 anos',
+      items: [
+        ['Tesouro IPCA+', 'Rende a inflação mais uma taxa fixa, então o dinheiro não perde poder de compra. Se vender antes do vencimento, o preço oscila.'],
+        ['CDB, LCI ou LCA com vencimento longo', 'Pagam mais por prazos maiores. Cuidado com o limite do FGC e escolha bancos conhecidos.'],
+      ],
+    },
+  };
+
+  function guideHTML(months, emergency) {
+    const key = emergency || (months !== null && months <= 12) ? 'short' : months !== null && months <= 36 ? 'mid' : 'long';
+    const g = GUIDE[key];
+    return `<h3 class="guide-title">📍 ${esc(g.title)}</h3>
+      <ul class="guide-list">${g.items.map(([t, d]) => `<li><strong>${esc(t)}</strong><span>${esc(d)}</span></li>`).join('')}</ul>
+      <p class="hint">${key === 'short' ? 'Para o que você pode precisar a qualquer momento, o importante é poder resgatar sem perder dinheiro.' : 'Quanto mais longo o prazo, melhor o rendimento, mas o dinheiro fica preso. Case o vencimento com a data da meta.'}</p>`;
+  }
+
+  function guideExtras() {
+    const late = state.debts.filter((d) => d.overdue && leftOf(d) > 0);
+    return `${late.length ? `<div class="debt-preview"><p>⚠️ <strong>Você tem ${late.length} ${late.length === 1 ? 'dívida em atraso' : 'dívidas em atraso'}.</strong> Quitar com 50% ou mais de desconto rende muito mais do que qualquer investimento. Faça uma reserva pequena (1 mês de gastos) e priorize quitar.</p></div>` : ''}
+      <details class="guide-more"><summary>Imposto de Renda nos investimentos de renda fixa</summary>
+        <p>Incide só sobre o lucro, em tabela que diminui com o tempo: <strong>22,5%</strong> até 180 dias, <strong>20%</strong> de 181 a 360, <strong>17,5%</strong> de 361 a 720 e <strong>15%</strong> acima de 720 dias. LCI e LCA não pagam. Resgate nos primeiros 30 dias tem também IOF.</p></details>
+      <details class="guide-more"><summary>O que evitar</summary>
+        <p>Poupança (rende menos que CDB e Tesouro Selic hoje) · promessas de “2% ao mês garantido” ou de dobrar o dinheiro · criptomoedas e ações para dinheiro que você vai precisar logo · qualquer coisa que peça dinheiro por WhatsApp ou PIX para um “gerente”.</p></details>
+      <p class="hint">Referência de ago/2026: o Copom levou a Selic a 14% ao ano e o mercado espera queda, para cerca de 12% em 2027. Confira a taxa atual no site do Banco Central. Informação educativa, não é recomendação de investimento.</p>`;
+  }
+
+  function openGoalPlanSheet(g) {
+    const remaining = Math.max(0, g.target - g.saved);
+    const rate0 = state.settings.goalRate;
+    const sug = suggestedSaving();
+    const cur = currentMonth();
+    const deadlineMonths = g.deadline ? monthsBetween(cur, g.deadline) : 0;
+    const emergency = /reserva|emerg/i.test(g.name);
+    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">${g.icon} Como chegar lá</h2>
+      <p class="hint"><strong>${esc(g.name)}</strong>: faltam <strong class="num">${fmtMoney(remaining)}</strong> de ${fmtMoney(g.target)}${g.saved ? ` (já tem ${fmtMoney(g.saved)})` : ''}.</p>
+      ${remaining ? `<div class="field"><label for="goalRate">Rendimento estimado ao ano, já descontado o imposto</label>
+        <input id="goalRate" inputmode="decimal" autocomplete="off" value="${String(rate0).replace('.', ',')}">
+        <div class="chips" id="rateChips">
+          <button class="chip" type="button" data-rate="0">0% (só guardando)</button>
+          <button class="chip" type="button" data-rate="6">6% poupança</button>
+          <button class="chip" type="button" data-rate="10">10% conservador</button>
+          <button class="chip" type="button" data-rate="12">12% CDI atual</button></div>
+        <p class="hint">O padrão de 10% fica abaixo do CDI de hoje de propósito, porque a Selic deve cair. O rendimento real pode ser maior ou menor.</p></div>
+        <div id="scenarios" aria-live="polite"></div>
+        <div class="field"><label for="goalMonthly">Simule: quanto posso guardar por mês?</label>
+          <input id="goalMonthly" class="money" inputmode="numeric" autocomplete="off"></div>
+        <div class="debt-preview" id="goalSim" aria-live="polite"></div>
+        ${sug ? `<p class="hint">💡 Pela regra 50/30/20, <strong>20% ${sug.source}</strong> seria cerca de <strong class="num">${fmtMoney(sug.value)}</strong> por mês, somando todas as suas metas.</p>` : ''}`
+        : '<div class="debt-preview"><p>🎉 Esta meta já foi alcançada!</p></div>'}
+      <div id="guideBox"></div>
+      ${guideExtras()}`);
+    if (!remaining) return;
+    const rateEl = $('#goalRate', root);
+    const monthlyEl = $('#goalMonthly', root);
+    bindMoney(monthlyEl, 0);
+    const readRate = () => {
+      const v = Number(rateEl.value.replace('%', '').replace(',', '.'));
+      return Number.isFinite(v) && v >= 0 && v <= 30 ? v : rate0;
+    };
+    const dateOf = (months) => monthName(shiftMonth(cur, months), { month: 'short', year: 'numeric' }).replace('.', '');
+
+    function scenarios() {
+      const rate = readRate();
+      const base = deadlineMonths > 0 ? roundUp(monthlyNeeded(g, deadlineMonths, rate)) : roundUp(monthlyNeeded(g, 24, rate));
+      const opts = deadlineMonths > 0
+        ? [{ label: `No prazo (${dateOf(deadlineMonths)})`, v: base }, { label: 'Mais folgado', v: roundUp(base * 0.7) }, { label: 'Mais rápido', v: roundUp(base * 1.5) }]
+        : [{ label: 'Tranquilo', v: roundUp(monthlyNeeded(g, 48, rate)) }, { label: 'Equilibrado', v: base }, { label: 'Rápido', v: roundUp(monthlyNeeded(g, 12, rate)) }];
+      const rows = opts.map((o) => {
+        const r = monthsToGoal(g, o.v, rate);
+        const r0 = monthsToGoal(g, o.v, 0);
+        const gain = r ? r.final - g.saved - r.deposited : 0;
+        return `<div class="scen"><div class="scen-top"><span>${esc(o.label)}</span><strong class="num">${fmtMoney(o.v)}<small>/mês</small></strong></div>
+          <div class="scen-body"><span>⏱ <strong>${esc(timeText(r && r.months))}</strong>${r ? ` · ${esc(dateOf(r.months))}` : ''}${deadlineMonths > 0 && (!r || r.months > deadlineMonths) ? ' · ⚠ passa do prazo' : ''}</span>
+            <span>📈 rendimento ≈ ${fmtMoney(Math.max(0, gain))}${r0 && r && r0.months > r.months ? ` · ${r0.months - r.months} ${r0.months - r.months === 1 ? 'mês' : 'meses'} mais rápido que sem render` : ''}</span></div></div>`;
+      }).join('');
+      $('#scenarios', root).innerHTML = `<p class="guide-title">Quanto guardar por mês</p>${rows}`;
+      const first = monthsToGoal(g, opts[opts.length === 3 ? 1 : 0].v, rate);
+      $('#guideBox', root).innerHTML = guideHTML(deadlineMonths > 0 ? deadlineMonths : (first ? first.months : null), emergency);
+    }
+    function simulate() {
+      const v = centsOf(monthlyEl);
+      const box = $('#goalSim', root);
+      if (!v) {
+        box.innerHTML = '<p>Digite um valor para ver em quanto tempo você chega lá.</p>';
+        return;
+      }
+      const rate = readRate();
+      const r = monthsToGoal(g, v, rate);
+      const r0 = monthsToGoal(g, v, 0);
+      if (!r) {
+        box.innerHTML = '<p>Com esse valor a meta leva mais de 50 anos. Tente um valor maior.</p>';
+        return;
+      }
+      const gain = r.final - g.saved - r.deposited;
+      box.innerHTML = `<p>⏱ Guardando <strong>${fmtMoney(v)}</strong> por mês você chega em <strong>${esc(timeText(r.months))}</strong> (${esc(dateOf(r.months))}).</p>
+        <p>💰 Você deposita ${fmtMoney(r.deposited)} e o rendimento soma cerca de <strong>${fmtMoney(Math.max(0, gain))}</strong>.</p>
+        ${r0 && r0.months > r.months ? `<p>📈 Sem rendimento levaria ${esc(timeText(r0.months))}.</p>` : ''}
+        ${deadlineMonths > 0 ? (r.months <= deadlineMonths ? '<p>✅ Dentro do seu prazo.</p>' : `<p>⚠ Passa do prazo (${esc(dateOf(deadlineMonths))}) em ${r.months - deadlineMonths} ${r.months - deadlineMonths === 1 ? 'mês' : 'meses'}.</p>`) : ''}`;
+    }
+    let saveTimer = 0;
+    const onRate = () => {
+      scenarios();
+      simulate();
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => { state.settings.goalRate = readRate(); save(); }, 600);
+    };
+    rateEl.addEventListener('input', onRate);
+    $('#rateChips', root).addEventListener('click', (e) => {
+      const b = e.target.closest('[data-rate]');
+      if (!b) return;
+      rateEl.value = b.dataset.rate;
+      onRate();
+    });
+    monthlyEl.addEventListener('input', simulate);
+    scenarios();
+    simulate();
   }
 
   // ---------- Painel inferior (formulários) ----------
@@ -3847,9 +4032,9 @@
       openBudgetSheet(el.dataset.cat);
     } else if (action === 'new-goal') {
       openGoalSheet();
-    } else if (action === 'edit-goal' || action === 'deposit') {
+    } else if (action === 'edit-goal' || action === 'deposit' || action === 'goal-plan') {
       const goal = state.goals.find((g) => g.id === el.dataset.id);
-      if (goal) (action === 'deposit' ? openDepositSheet : openGoalSheet)(goal);
+      if (goal) (action === 'deposit' ? openDepositSheet : action === 'goal-plan' ? openGoalPlanSheet : openGoalSheet)(goal);
     } else if (action === 'trend-sel') {
       selectTrend(el.dataset.month);
     } else if (action === 'new-income') {
@@ -4197,9 +4382,8 @@
       last = localStorage.getItem(VERSION_KEY);
       localStorage.setItem(VERSION_KEY, info.version);
     } catch { /* sem armazenamento */ }
-    if (last === info.version) return;
-    // Sem versão anterior anotada: só mostra se a pessoa já usava o app antes.
-    if (!last && !(state.transactions.length || state.goals.length || state.debts.length)) return;
+    // Sem versão anotada é a primeira vez com o modo offline: só anota, não é uma atualização.
+    if (!last || last === info.version) return;
     showWhatsNew(info);
   }
 
@@ -4316,6 +4500,7 @@
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !window.MEUBOLSO_PREVIEW) {
     window.addEventListener('load', async () => {
       try {
+        let hadController = !!navigator.serviceWorker.controller;
         swRegistration = await navigator.serviceWorker.register('sw.js');
         if (swRegistration.waiting && navigator.serviceWorker.controller) offerUpdate(swRegistration.waiting);
         swRegistration.addEventListener('updatefound', () => {
@@ -4334,7 +4519,13 @@
           } catch { /* sem armazenamento */ }
         });
         // Atualizado em outra aba: recarrega esta também.
+        // Só recarrega quando já existia uma versão antes: na primeira instalação o modo offline
+        // assume a página e isso não é uma atualização (recarregar atropelaria quem já está usando).
         navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!hadController) {
+            hadController = true;
+            return;
+          }
           if (!updatingNow) {
             updatingNow = true;
             location.reload();
