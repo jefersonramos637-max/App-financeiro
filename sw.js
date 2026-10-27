@@ -1,8 +1,9 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.8.0';
+const VERSION = '1.8.1';
 const NOTES = [
+  'Ao cadastrar o cartão, informe a fatura que já está aberta e o app lança na fatura certa',
   'Cartões de crédito: cadastre o dia de fechamento, o vencimento e o limite',
   'Compra no cartão entra na fatura certa e o dinheiro só sai no vencimento',
   'Veja cada fatura, o limite disponível e marque a fatura como paga',

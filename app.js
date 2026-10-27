@@ -1424,8 +1424,12 @@
           <div class="field"><label for="cardDue">Dia do vencimento</label>
             <input id="cardDue" type="number" min="1" max="31" inputmode="numeric" value="${card ? card.dueDay : ''}" placeholder="Ex.: 10"></div>
         </div>
+        <p class="hint" id="closeHint" hidden>Sugerimos o fechamento 7 dias antes do vencimento, como no Nubank e em vários bancos. Confira na fatura do app do banco.</p>
         <div class="field"><label for="cardLimit">Limite total (opcional)</label>
           <input id="cardLimit" class="money" inputmode="numeric" autocomplete="off"></div>
+        ${isNew ? `<div class="field"><label for="cardOpen">Valor da fatura que já está aberta (opcional)</label>
+          <input id="cardOpen" class="money" inputmode="numeric" autocomplete="off">
+          <p class="hint">Entra como uma compra só, na fatura atual. Depois é só lançar as compras novas.</p></div>` : ''}
         <div class="debt-preview" id="cardPreview" aria-live="polite"></div>
         <p class="hint">Os dias aparecem no app do banco, na fatura. Compras parceladas no cartão: lance pelo botão Adicionar escolhendo o cartão. Use a aba Dívidas só para dívida renegociada ou fatura parcelada.</p>
         <div class="actions">
@@ -1435,6 +1439,20 @@
       </form>`);
     const limit = $('#cardLimit', root);
     bindMoney(limit, card ? card.limit : 0);
+    const openAmt = $('#cardOpen', root);
+    if (openAmt) bindMoney(openAmt, 0);
+    // Sugere o fechamento 7 dias antes do vencimento enquanto a pessoa não mexer nele.
+    let closeAuto = isNew;
+    $('#cardClose', root).addEventListener('input', () => {
+      closeAuto = false;
+      $('#closeHint', root).hidden = true;
+    });
+    $('#cardDue', root).addEventListener('input', () => {
+      const due = parseInt($('#cardDue', root).value, 10);
+      if (!closeAuto || !(due >= 1 && due <= 31)) return;
+      $('#cardClose', root).value = String(((due - 8 + 31) % 31) + 1);
+      $('#closeHint', root).hidden = false;
+    });
     const day = (id) => {
       const v = parseInt($(`#${id}`, root).value, 10);
       return v >= 1 && v <= 31 ? v : null;
@@ -1477,8 +1495,23 @@
         return;
       }
       const data = { name, closingDay: close, dueDay: due, limit: centsOf(limit) };
-      if (isNew) state.cards.push({ id: uid(), paid: [], createdAt: Date.now(), ...data });
-      else {
+      if (isNew) {
+        const c = { id: uid(), paid: [], createdAt: Date.now(), ...data };
+        state.cards.push(c);
+        const open = openAmt ? centsOf(openAmt) : 0;
+        if (open) {
+          // A fatura em aberto é a que vence primeiro a partir de hoje (já fechada ou ainda aberta).
+          const today = todayISO();
+          let invDue = invoiceDue(c, today, -1);
+          if (invDue < today) invDue = invoiceDue(c, today, 0);
+          const close = closingOf(c, invDue);
+          const buy = today < close ? today : isoOf(new Date(parseISO(close).getTime() - 864e5));
+          state.transactions.push({
+            id: uid(), type: 'expense', category: 'outros', amount: open, description: 'Fatura em aberto (compras anteriores)',
+            cardId: c.id, buyDate: buy, cardOffset: 0, date: invoiceDue(c, buy, 0), createdAt: Date.now(),
+          });
+        }
+      } else {
         Object.assign(card, data);
         recomputeCardTx(card);
       }
