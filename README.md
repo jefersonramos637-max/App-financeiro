@@ -29,6 +29,10 @@ instalado na tela inicial como um app e continua funcionando sem internet.
 - **Contas a pagar**: contas fixas, parcelas e gastos marcados como “ainda não paguei” aparecem na
   tela inicial até o próximo salário, com “✓ Paguei”, aviso de atrasadas e lembretes no calendário
   do celular (arquivo .ics com alarme às 9h do dia anterior).
+- **Cartões de crédito**: dia de fechamento, vencimento e limite. Ao lançar um gasto, escolha o
+  cartão: a compra entra na fatura certa (no dia do fechamento ou depois vai para a seguinte) e o
+  dinheiro conta no vencimento da fatura. Parcelado no cartão cai em faturas seguidas. A tela
+  inicial mostra a fatura atual e o limite disponível; a fatura entra nas contas a pagar.
 - **Limites**: limite mensal por categoria, com aviso ao chegar a 80% e quando estoura.
 - **Regra 50/30/20**: compara seus gastos com o ideal (50% necessidades, 30% desejos, 20% futuro).
 - **Metas**: quanto guardar por mês para chegar no objetivo até o prazo, e o tamanho ideal da

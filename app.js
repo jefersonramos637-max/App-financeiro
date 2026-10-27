@@ -123,7 +123,7 @@
   const MAX_CENTS = 1e11;
   const defaultSettings = () => ({ hideValues: false, lockAfter: 60, lastBackupAt: 0, helpSeen: {}, debtExtra: 0, debtStrategy: '' });
   const defaultState = () => ({
-    version: 5, transactions: [], budgets: {}, goals: [], debts: [], salary: null, demo: false, settings: defaultSettings(),
+    version: 5, transactions: [], budgets: {}, goals: [], debts: [], cards: [], salary: null, demo: false, settings: defaultSettings(),
   });
 
   const isISO = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -161,6 +161,11 @@
         if (typeof t.salaryKey === 'string') tx.salaryKey = t.salaryKey.slice(0, 20);
         if (t.bill) tx.bill = true;
         if (isISO(t.paidAt)) tx.paidAt = t.paidAt;
+        if (t.type === 'expense' && typeof t.cardId === 'string' && isISO(t.buyDate)) {
+          tx.cardId = t.cardId;
+          tx.buyDate = t.buyDate;
+          tx.cardOffset = Number.isInteger(t.cardOffset) && t.cardOffset >= 0 && t.cardOffset <= 600 ? t.cardOffset : 0;
+        }
         if (t.debtId && Number.isInteger(t.debtNo)) {
           tx.debtId = String(t.debtId);
           tx.debtNo = t.debtNo;
@@ -203,6 +208,27 @@
           paydays, weekendBefore: rsal.weekendBefore !== false,
           generatedUntil: ym(rsal.generatedUntil), startYM: ym(rsal.startYM) || currentMonth(),
         };
+      }
+    }
+    const day = (v) => (Number.isInteger(v) && v >= 1 && v <= 31 ? v : null);
+    s.cards = (Array.isArray(raw.cards) ? raw.cards : [])
+      .filter((c) => c && typeof c.name === 'string' && day(c.closingDay) && day(c.dueDay))
+      .slice(0, 20)
+      .map((c) => ({
+        id: String(c.id || uid()),
+        name: c.name.slice(0, 30),
+        closingDay: c.closingDay,
+        dueDay: c.dueDay,
+        limit: Number.isInteger(c.limit) && c.limit > 0 && c.limit <= MAX_CENTS ? c.limit : 0,
+        paid: (Array.isArray(c.paid) ? c.paid : []).filter(isISO).slice(-240),
+        createdAt: Number(c.createdAt) || Date.now(),
+      }));
+    // Compras de cartão que não existe mais viram gasto comum.
+    for (const t of s.transactions) {
+      if (t.cardId && !s.cards.some((c) => c.id === t.cardId)) {
+        delete t.cardId;
+        delete t.buyDate;
+        delete t.cardOffset;
       }
     }
     s.debts = (Array.isArray(raw.debts) ? raw.debts : [])
@@ -635,6 +661,62 @@
 
   const salaryLabel = () => (state.salary ? `dia${state.salary.paydays.length > 1 ? 's' : ''} ${state.salary.paydays.map((p) => p.day).join(' e ')}` : '');
 
+  // ---------- Cartões de crédito ----------
+  // A compra no cartão fica gravada na data de vencimento da fatura (quando o dinheiro sai de verdade),
+  // com a data da compra em buyDate. Compra no dia do fechamento ou depois vai para a fatura seguinte.
+
+  const cardById = (id) => state.cards.find((c) => c.id === id);
+
+  function invoiceDue(card, buyISO, offset = 0) {
+    let closeYM = monthOf(buyISO);
+    if (Number(buyISO.slice(8, 10)) >= Math.min(card.closingDay, daysInMonth(closeYM))) closeYM = shiftMonth(closeYM, 1);
+    closeYM = shiftMonth(closeYM, offset);
+    return dueIn(card.dueDay > card.closingDay ? closeYM : shiftMonth(closeYM, 1), card.dueDay);
+  }
+
+  function closingOf(card, dueISO) {
+    const dueYM = monthOf(dueISO);
+    return dueIn(card.dueDay > card.closingDay ? dueYM : shiftMonth(dueYM, -1), card.closingDay);
+  }
+
+  function invoicesOf(card) {
+    const map = new Map();
+    for (const t of state.transactions) {
+      if (t.cardId !== card.id) continue;
+      if (!map.has(t.date)) map.set(t.date, { due: t.date, close: closingOf(card, t.date), total: 0, items: [], paid: card.paid.includes(t.date) });
+      const inv = map.get(t.date);
+      inv.total += t.amount;
+      inv.items.push(t);
+    }
+    return [...map.values()].sort((a, b) => (a.due < b.due ? -1 : 1));
+  }
+
+  // Limite em uso: tudo o que está em faturas ainda não pagas (inclusive parcelas futuras).
+  const cardUsed = (card) => sum(invoicesOf(card).filter((i) => !i.paid).map((i) => i.total));
+
+  // Fatura para mostrar agora: a mais antiga em aberto; se não houver, a que está aberta para compras.
+  function currentInvoice(card) {
+    const open = invoicesOf(card).find((i) => !i.paid && i.total > 0);
+    if (open) return open;
+    const due = invoiceDue(card, todayISO());
+    return invoicesOf(card).find((i) => i.due === due) || { due, close: closingOf(card, due), total: 0, items: [], paid: false };
+  }
+
+  function invoiceStatus(card, inv) {
+    const today = todayISO();
+    if (inv.paid) return { cls: 'good', text: '✓ Paga' };
+    if (inv.close > today) return { cls: '', text: `Aberta · fecha ${shortDate(inv.close)}` };
+    if (inv.due >= today) return { cls: 'warning', text: `Fechada · vence ${shortDate(inv.due)}` };
+    return { cls: 'critical', text: `Atrasada desde ${shortDate(inv.due)}` };
+  }
+
+  // Ao mudar os dias do cartão, refaz as datas das faturas ainda não pagas.
+  function recomputeCardTx(card) {
+    for (const t of state.transactions) {
+      if (t.cardId === card.id && !card.paid.includes(t.date)) t.date = invoiceDue(card, t.buyDate, t.cardOffset || 0);
+    }
+  }
+
   // ---------- Contas a pagar ----------
   // Conta = gasto que ainda vai sair: fixa mensal, parcela, parcela de dívida ou marcada como "ainda não paguei".
 
@@ -656,6 +738,13 @@
       if (t.date <= until && isBill(t) && !billPaid(t)) {
         const c = catById('expense', t.category);
         items.push({ key: t.id, kind: 'tx', t, date: t.date, amount: t.amount, name: t.description || c.name, icon: c.icon });
+      }
+    }
+    for (const c of state.cards) {
+      for (const inv of invoicesOf(c)) {
+        if (!inv.paid && inv.total > 0 && inv.due <= until) {
+          items.push({ key: `${c.id}|${inv.due}`, kind: 'invoice', date: inv.due, amount: inv.total, name: `Fatura ${c.name}`, icon: '💳' });
+        }
       }
     }
     return items.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : b.amount - a.amount));
@@ -692,7 +781,7 @@
 
   function billsCard() {
     if (ui.month !== currentMonth()) return '';
-    const hasBills = state.transactions.some((t) => isBill(t) && t.date >= todayISO()) || pendingBills(todayISO()).length;
+    const hasBills = state.transactions.some((t) => (isBill(t) || t.cardId) && t.date >= todayISO()) || pendingBills(todayISO()).length;
     if (!hasBills) return '';
     const h = billsHorizon();
     const items = pendingBills(h.until);
@@ -740,6 +829,12 @@
   }
 
   function payBill(kind, key) {
+    if (kind === 'invoice') {
+      const [cardId, due] = key.split('|');
+      const card = cardById(cardId);
+      if (card) payInvoice(card, due);
+      return;
+    }
     if (kind === 'tx') {
       const t = state.transactions.find((x) => x.id === key);
       if (!t) return;
@@ -869,6 +964,7 @@
       </section>`,
       dailyTip(inc, exp, bal),
       billsCard(),
+      cardsCard(),
       debtsHomeCard(),
       alertsCard(list),
       categoryChart(list, exp),
@@ -1074,7 +1170,9 @@
 
   function txRow(t) {
     const c = catById(t.type, t.category);
-    const meta = [c.name, t.installment && `parcela ${t.installment}`, t.recurring && 'todo mês', t.salaryKey && 'automático'].filter(Boolean).join(' · ');
+    const card = t.cardId ? cardById(t.cardId) : null;
+    const meta = [c.name, card && `💳 ${card.name} · compra ${shortDate(t.buyDate)}`, t.installment && `parcela ${t.installment}`,
+      t.recurring && 'todo mês', t.salaryKey && 'automático'].filter(Boolean).join(' · ');
     return `<li><button class="tx" type="button" data-action="edit-tx" data-id="${esc(t.id)}">
       <span class="tx-icon" aria-hidden="true">${c.icon}</span>
       <span class="tx-main"><span class="tx-desc">${esc(t.description || c.name)}</span>
@@ -1228,6 +1326,191 @@
 
     return `${demoBanner()}${helpCard('budget', 'Defina quanto quer gastar no máximo por mês em cada categoria, como mercado e delivery. O app avisa quando chegar a 80% e quando passar.')}${summary}${rule}<section class="card">
       <div class="card-head"><h2 class="card-title">Limites por categoria</h2></div>${rows}</section>`;
+  }
+
+  function cardsCard() {
+    if (ui.month !== currentMonth() || !state.cards.length) return '';
+    return `<section class="card cards">
+      <div class="card-head"><h2 class="card-title">💳 Cartões de crédito</h2></div>
+      ${state.cards.map((c) => {
+        const inv = currentInvoice(c);
+        const st = invoiceStatus(c, inv);
+        const used = cardUsed(c);
+        const pct = c.limit ? Math.min(1, used / c.limit) : 0;
+        return `<div class="cc">
+          <div class="cc-top"><strong>${esc(c.name)}</strong><span class="badge ${st.cls}">${esc(st.text)}</span></div>
+          <div class="cc-inv"><span>Fatura de ${esc(monthName(monthOf(inv.due), { month: 'long' }))} · vence ${shortDate(inv.due)}</span>
+            <strong class="num">${money(inv.total)}</strong></div>
+          ${c.limit ? `<div class="progress" style="grid-column:auto"><div class="${pct >= 0.9 ? 'critical' : pct >= 0.7 ? 'warning' : 'neutral'}" style="width:${(pct * 100).toFixed(1)}%"></div></div>
+            <div class="cc-limit"><span>Limite disponível <strong class="num">${money(Math.max(0, c.limit - used))}</strong></span><span class="num">de ${money(c.limit)}</span></div>` : ''}
+          <button class="link-btn" type="button" data-action="see-invoice" data-card="${esc(c.id)}" data-due="${inv.due}">Ver fatura</button>
+        </div>`;
+      }).join('')}
+    </section>`;
+  }
+
+  function openInvoiceSheet(card, due) {
+    const list = invoicesOf(card);
+    const openDue = invoiceDue(card, todayISO());
+    if (!list.some((i) => i.due === openDue)) list.push({ due: openDue, close: closingOf(card, openDue), total: 0, items: [], paid: false });
+    list.sort((a, b) => (a.due < b.due ? -1 : 1));
+    let idx = Math.max(0, list.findIndex((i) => i.due === due));
+    const root = openSheet('<div id="invBox"></div>');
+    const paint = () => {
+      const inv = list[idx];
+      inv.paid = card.paid.includes(inv.due);
+      const st = invoiceStatus(card, inv);
+      const items = inv.items.slice().sort((a, b) => (a.buyDate < b.buyDate ? 1 : -1));
+      $('#invBox', root).innerHTML = `<div class="inv-nav">
+          <button class="icon-btn" type="button" data-nav="-1" aria-label="Fatura anterior"${idx === 0 ? ' disabled' : ''}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+          <div><h2 class="sheet-title" id="sheetTitle" style="margin:0">💳 ${esc(card.name)}</h2>
+            <p class="card-sub">Fatura de ${esc(monthName(monthOf(inv.due)))}</p></div>
+          <button class="icon-btn" type="button" data-nav="1" aria-label="Próxima fatura"${idx === list.length - 1 ? ' disabled' : ''}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+        </div>
+        <div class="inv-total"><span class="badge ${st.cls}">${esc(st.text)}</span>
+          <strong class="num">${fmtMoney(inv.total)}</strong>
+          <small>Fecha ${shortDate(inv.close)} · vence ${shortDate(inv.due)}</small></div>
+        ${items.length ? `<ul class="tx-list">${items.map((t) => `<li class="inv-item"><span>${shortDate(t.buyDate)}</span>
+          <span class="tx-main"><span class="tx-desc">${esc(t.description || catById('expense', t.category).name)}</span>
+          <span class="tx-meta">${esc(catById('expense', t.category).name)}${t.installment ? ` · parcela ${esc(t.installment)}` : ''}</span></span>
+          <strong class="num">${fmtMoney(t.amount)}</strong></li>`).join('')}</ul>`
+          : '<p class="bills-empty">Nenhuma compra nesta fatura ainda.</p>'}
+        <div class="actions" style="margin-top:12px">
+          ${inv.total && !inv.paid ? '<button class="btn primary block" type="button" id="payInv">✓ Paguei esta fatura</button>' : ''}
+          ${inv.paid ? '<button class="btn block" type="button" id="unpayInv">Desfazer pagamento da fatura</button>' : ''}
+        </div>`;
+      const pay = $('#payInv', root);
+      if (pay) pay.addEventListener('click', () => { payInvoice(card, inv.due); paint(); });
+      const unpay = $('#unpayInv', root);
+      if (unpay) unpay.addEventListener('click', () => {
+        card.paid = card.paid.filter((d) => d !== inv.due);
+        save();
+        render();
+        paint();
+      });
+    };
+    root.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-nav]');
+      if (!b || b.disabled) return;
+      idx = Math.min(list.length - 1, Math.max(0, idx + Number(b.dataset.nav)));
+      paint();
+    });
+    paint();
+  }
+
+  function payInvoice(card, due) {
+    if (!card.paid.includes(due)) card.paid.push(due);
+    save();
+    render();
+    toast(`Fatura ${card.name} paga ✓`, {
+      label: 'Desfazer',
+      run: () => {
+        card.paid = card.paid.filter((d) => d !== due);
+        save();
+        render();
+      },
+    });
+  }
+
+  function openCardSheet(card) {
+    const isNew = !card;
+    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">💳 ${isNew ? 'Novo cartão' : 'Editar cartão'}</h2>
+      <form id="cardForm" class="form" novalidate>
+        <div class="field"><label for="cardName">Nome do cartão</label>
+          <input id="cardName" maxlength="30" placeholder="Ex.: Nubank" autocomplete="off" value="${esc(card ? card.name : '')}"></div>
+        <div class="field-row">
+          <div class="field"><label for="cardClose">Dia que a fatura fecha</label>
+            <input id="cardClose" type="number" min="1" max="31" inputmode="numeric" value="${card ? card.closingDay : ''}" placeholder="Ex.: 3"></div>
+          <div class="field"><label for="cardDue">Dia do vencimento</label>
+            <input id="cardDue" type="number" min="1" max="31" inputmode="numeric" value="${card ? card.dueDay : ''}" placeholder="Ex.: 10"></div>
+        </div>
+        <div class="field"><label for="cardLimit">Limite total (opcional)</label>
+          <input id="cardLimit" class="money" inputmode="numeric" autocomplete="off"></div>
+        <div class="debt-preview" id="cardPreview" aria-live="polite"></div>
+        <p class="hint">Os dias aparecem no app do banco, na fatura. Compras parceladas no cartão: lance pelo botão Adicionar escolhendo o cartão. Use a aba Dívidas só para dívida renegociada ou fatura parcelada.</p>
+        <div class="actions">
+          <button class="btn primary block" type="submit">Salvar cartão</button>
+          ${isNew ? '' : '<button class="btn danger block" type="button" id="delCard">Excluir cartão</button><div id="confirmSlot"></div>'}
+        </div>
+      </form>`);
+    const limit = $('#cardLimit', root);
+    bindMoney(limit, card ? card.limit : 0);
+    const day = (id) => {
+      const v = parseInt($(`#${id}`, root).value, 10);
+      return v >= 1 && v <= 31 ? v : null;
+    };
+    const preview = () => {
+      const close = day('cardClose');
+      const due = day('cardDue');
+      const box = $('#cardPreview', root);
+      if (!close || !due) {
+        box.innerHTML = '<p>Informe o dia de fechamento e o dia de vencimento da fatura.</p>';
+        return;
+      }
+      if (close === due) {
+        box.innerHTML = '<p>⚠ O fechamento e o vencimento costumam ser em dias diferentes. Confira na fatura.</p>';
+        return;
+      }
+      const tmp = { closingDay: close, dueDay: due };
+      const today = todayISO();
+      box.innerHTML = `<p>🛒 Comprando hoje (${shortDate(today)}), a compra entra na fatura que vence em <strong>${shortDate(invoiceDue(tmp, today))}</strong>.</p>
+        <p>⭐ <strong>Melhor dia para comprar: dia ${close}</strong>. Comprando no dia do fechamento, você só paga na fatura do mês seguinte.</p>`;
+    };
+    preview();
+    ['input', 'change'].forEach((ev) => ['cardClose', 'cardDue'].forEach((id) => $(`#${id}`, root).addEventListener(ev, preview)));
+    $('#cardForm', root).addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = $('#cardName', root).value.trim();
+      const close = day('cardClose');
+      const due = day('cardDue');
+      if (!name) {
+        toast('Dê um nome para o cartão, ex.: Nubank.');
+        $('#cardName', root).focus();
+        return;
+      }
+      if (!close || !due) {
+        toast('Informe os dias de fechamento e de vencimento (1 a 31).');
+        return;
+      }
+      if (close === due) {
+        toast('O fechamento e o vencimento precisam ser em dias diferentes.');
+        return;
+      }
+      const data = { name, closingDay: close, dueDay: due, limit: centsOf(limit) };
+      if (isNew) state.cards.push({ id: uid(), paid: [], createdAt: Date.now(), ...data });
+      else {
+        Object.assign(card, data);
+        recomputeCardTx(card);
+      }
+      save();
+      closeSheet();
+      render();
+      toast(isNew ? 'Cartão cadastrado 💳' : 'Cartão atualizado');
+    });
+    if (!isNew) {
+      $('#delCard', root).addEventListener('click', () => confirmBox($('#confirmSlot', root),
+        'Excluir este cartão? As compras dele continuam no extrato como gasto comum.', [
+          { label: 'Cancelar', onClick: () => { $('#confirmSlot', root).innerHTML = ''; } },
+          {
+            label: 'Excluir', cls: 'danger', onClick: () => {
+              for (const t of state.transactions) {
+                if (t.cardId !== card.id) continue;
+                delete t.cardId;
+                delete t.buyDate;
+                delete t.cardOffset;
+                if (card.paid.includes(t.date)) t.paidAt = t.date;
+                else t.bill = true;
+              }
+              state.cards = state.cards.filter((c) => c.id !== card.id);
+              save();
+              closeSheet();
+              render();
+              toast('Cartão excluído');
+            },
+          },
+        ]));
+    }
+    if (isNew) $('#cardName', root).focus();
   }
 
   // ----- Dívidas -----
@@ -1605,6 +1888,7 @@
     let type = tx ? tx.type : presetType || 'expense';
     let category = tx ? tx.category : type === 'income' ? 'salario' : 'mercado';
     let repeat = 'single';
+    let payCard = tx && tx.cardId && cardById(tx.cardId) ? tx.cardId : '';
 
     const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">${isNew ? 'Adicionar' : 'Editar'}</h2>
       <form id="txForm" class="form" novalidate>
@@ -1618,8 +1902,12 @@
           <input id="txDesc" maxlength="60" placeholder="Ex.: Mercado do mês (opcional)" autocomplete="off" value="${esc(tx ? tx.description : '')}"></div>
         <div class="field"><span class="label" id="catLabel">Categoria</span>
           <div class="cat-grid" id="catGrid" role="radiogroup" aria-labelledby="catLabel"></div></div>
+        ${state.cards.length ? `<div class="field" id="payField"><span class="label">Como pagou?</span>
+          <div class="chips" id="payChips"><button class="chip" type="button" data-card="">💵 Pix, débito ou dinheiro</button>
+            ${state.cards.map((c) => `<button class="chip" type="button" data-card="${esc(c.id)}">💳 ${esc(c.name)}</button>`).join('')}</div></div>` : ''}
         <div class="field"><label for="txDate" id="txDateLabel">Data</label>
-          <input id="txDate" type="date" required value="${tx ? tx.date : defaultDate()}"></div>
+          <input id="txDate" type="date" required value="${tx ? (tx.cardId ? tx.buyDate : tx.date) : defaultDate()}">
+          <p class="hint" id="payHint"></p></div>
         <label class="check" id="billField"><input type="checkbox" id="txUnpaid"${tx ? (isBill(tx) && !billPaid(tx) ? ' checked' : '') : ''}>
           <span id="txUnpaidLabel">Ainda não paguei (é uma conta a pagar, como boleto ou conta de luz)</span></label>
         ${isNew ? `<div class="field"><span class="label">Isso se repete?</span>
@@ -1645,9 +1933,36 @@
     unpaid.addEventListener('change', () => { unpaidTouched = true; });
     // Data futura sugere "ainda não paguei"; parcela de dívida é controlada pela aba Dívidas.
     const paintBill = () => {
-      $('#billField', root).hidden = type !== 'expense' || !!(tx && tx.debtId);
+      $('#billField', root).hidden = type !== 'expense' || !!(tx && tx.debtId) || !!payCard;
       if (!unpaidTouched) unpaid.checked = ($('#txDate', root).value || '') > todayISO();
+      const payField = $('#payField', root);
+      if (payField) {
+        payField.hidden = type !== 'expense' || !!(tx && (tx.debtId || tx.salaryKey));
+        $$('#payChips .chip', root).forEach((c) => c.classList.toggle('active', c.dataset.card === payCard));
+      }
+      const card = type === 'expense' && payCard ? cardById(payCard) : null;
+      $('#txDateLabel', root).textContent = card ? 'Data da compra' : 'Data';
+      const buy = $('#txDate', root).value;
+      const hint = $('#payHint', root);
+      if (!card || !isISO(buy)) {
+        hint.textContent = '';
+        return;
+      }
+      const n = isNew && repeat === 'installments' ? repeatCount() : 1;
+      const first = invoiceDue(card, buy, tx ? tx.cardOffset || 0 : 0);
+      hint.textContent = n > 1
+        ? `💳 ${n} parcelas nas faturas de ${monthYear(monthOf(first))} a ${monthYear(monthOf(invoiceDue(card, buy, n - 1)))}. O dinheiro sai no vencimento de cada fatura.`
+        : `💳 Entra na fatura que vence em ${shortDate(first)} (fecha ${shortDate(closingOf(card, first))}). O dinheiro só sai nesse dia.`;
     };
+    const payChips = $('#payChips', root);
+    if (payChips) {
+      payChips.addEventListener('click', (e) => {
+        const c = e.target.closest('.chip');
+        if (!c) return;
+        payCard = c.dataset.card;
+        paintBill();
+      });
+    }
 
     const paintType = () => {
       $$('#typeSeg button', root).forEach((b) => {
@@ -1666,6 +1981,7 @@
       const b = e.target.closest('button');
       if (!b) return;
       type = b.dataset.value;
+      if (type !== 'expense') payCard = '';
       paintType();
       paintBill();
       updateRepeatHint();
@@ -1709,9 +2025,10 @@
         if (repeat === 'fixed' && repeatCount() === 2) $('#txRepeat', root).value = '12';
         if (repeat === 'installments' && repeatCount() === 12) $('#txRepeat', root).value = '2';
         updateRepeatHint();
+        paintBill();
       });
       ['input', 'change'].forEach((ev) => {
-        $('#txRepeat', root).addEventListener(ev, updateRepeatHint);
+        $('#txRepeat', root).addEventListener(ev, () => { updateRepeatHint(); paintBill(); });
         amount.addEventListener(ev, updateRepeatHint);
         $('#txDate', root).addEventListener(ev, updateRepeatHint);
       });
@@ -1733,7 +2050,22 @@
         return;
       }
       const n = repeat === 'single' ? 1 : repeatCount();
-      const isUnpaid = type === 'expense' && unpaid.checked && !(tx && tx.debtId);
+      const card = type === 'expense' && payCard ? cardById(payCard) : null;
+      const isUnpaid = type === 'expense' && unpaid.checked && !(tx && tx.debtId) && !card;
+      // No cartão, a data gravada é o vencimento da fatura; a data da compra fica em buyDate.
+      const toCard = (t, buy, offset) => {
+        t.cardId = card.id;
+        t.buyDate = buy;
+        t.cardOffset = offset;
+        t.date = invoiceDue(card, buy, offset);
+        delete t.bill;
+        delete t.paidAt;
+      };
+      const fromCard = (t) => {
+        delete t.cardId;
+        delete t.buyDate;
+        delete t.cardOffset;
+      };
       // Marca de pago: a primeira ocorrência segue a caixinha; as seguintes ficam a pagar.
       const markPaid = (t, first) => {
         delete t.paidAt;
@@ -1742,11 +2074,16 @@
       };
       if (!isNew) {
         Object.assign(tx, { type, amount: cents, description, category, date });
-        if (isUnpaid) tx.bill = true;
-        if (!tx.debtId) markPaid(tx, true);
+        if (card) toCard(tx, date, tx.cardId === card.id ? tx.cardOffset || 0 : 0);
+        else {
+          fromCard(tx);
+          if (isUnpaid) tx.bill = true;
+          if (!tx.debtId) markPaid(tx, true);
+        }
       } else if (repeat === 'single') {
         const t = { id: uid(), type, amount: cents, description, category, date, createdAt: Date.now() };
-        if (isUnpaid) t.bill = true;
+        if (card) toCard(t, date, 0);
+        else if (isUnpaid) t.bill = true;
         state.transactions.push(t);
       } else {
         const groupId = uid();
@@ -1760,7 +2097,9 @@
           };
           if (repeat === 'installments') t.installment = `${i + 1}/${n}`;
           else t.recurring = true;
-          if (type === 'expense') markPaid(t, i === 0);
+          // Parcelado no cartão: mesma compra em faturas seguidas. Todo mês no cartão: uma compra por mês.
+          if (card) toCard(t, repeat === 'installments' ? date : addMonthsISO(date, i), repeat === 'installments' ? i : 0);
+          else if (type === 'expense') markPaid(t, i === 0);
           state.transactions.push(t);
         }
       }
@@ -2558,6 +2897,12 @@
         <button class="btn" type="button" id="salaryBtn">💼 ${state.salary ? `Recebo nos ${esc(salaryLabel())} · Editar` : 'Configurar meu salário'}</button>
       </div>
 
+      <p class="eyebrow settings-section">Cartões de crédito</p>
+      <div class="settings-list">
+        ${state.cards.map((c) => `<button class="btn" type="button" data-card-edit="${esc(c.id)}">💳 ${esc(c.name)} · fecha dia ${c.closingDay}, vence dia ${c.dueDay}</button>`).join('')}
+        <button class="btn" type="button" id="addCard">+ Adicionar cartão</button>
+      </div>
+
       <p class="eyebrow settings-section">Segurança</p>
       <div class="settings-list">
         ${cryptoKey ? `
@@ -2619,6 +2964,8 @@
     // Segurança
     const on = (id, fn) => { const el = $(`#${id}`, root); if (el) el.addEventListener('click', fn); };
     on('salaryBtn', openSalarySheet);
+    on('addCard', () => openCardSheet());
+    $$('[data-card-edit]', root).forEach((b) => b.addEventListener('click', () => openCardSheet(cardById(b.dataset.cardEdit))));
     on('checkUpdate', () => {
       closeSheet();
       checkForUpdate();
@@ -3121,6 +3468,9 @@
       openTxSheet(null, 'income');
     } else if (action === 'load-demo') {
       loadDemo();
+    } else if (action === 'see-invoice') {
+      const card = cardById(el.dataset.card);
+      if (card) openInvoiceSheet(card, el.dataset.due);
     } else if (action === 'pay-bill') {
       payBill(el.dataset.kind, el.dataset.key);
     } else if (action === 'all-bills') {

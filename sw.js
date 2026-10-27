@@ -1,11 +1,12 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.7.0';
+const VERSION = '1.8.0';
 const NOTES = [
-  'Contas a pagar: veja o que vence até o próximo salário e toque em “✓ Paguei”',
-  'Contas atrasadas aparecem em vermelho, no início e no extrato',
-  'Lembretes no calendário do celular, com alarme no dia anterior ao vencimento',
+  'Cartões de crédito: cadastre o dia de fechamento, o vencimento e o limite',
+  'Compra no cartão entra na fatura certa e o dinheiro só sai no vencimento',
+  'Veja cada fatura, o limite disponível e marque a fatura como paga',
+  'Contas a pagar: o que vence até o próximo salário, com “✓ Paguei” e lembretes no calendário',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [
