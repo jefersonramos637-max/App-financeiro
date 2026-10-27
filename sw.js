@@ -1,12 +1,12 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.10.1';
+const VERSION = '1.11.0';
 const NOTES = [
+  'Troca de abas muito mais rápida e fluida, principalmente na tela Início',
+  'O toque responde na hora e as animações ficaram mais leves',
+  'Lista de contas a pagar mostra as 5 primeiras, com “ver todas” para o resto',
   'A tela não dá mais zoom com pinça ou toque duplo',
-  'Novo: “Colar código do assistente” em ⚙. Cole o código que o assistente manda no chat e o app cadastra tudo sozinho',
-  'Correção: o cartão de crédito agora aparece na tela inicial mesmo sem outros lançamentos',
-  'Lembrete de backup todo dia: 2 toques e o iCloud guarda na nuvem sozinho',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [

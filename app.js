@@ -99,8 +99,33 @@
     return (b[0] - a[0]) * 12 + (b[1] - a[1]);
   };
   const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-  const monthName = (ym, opts = { month: 'long', year: 'numeric' }) =>
-    cap(parseISO(`${ym}-01`).toLocaleDateString('pt-BR', opts));
+  const DATE_FMT = {
+    long: new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }),
+    monthOnly: new Intl.DateTimeFormat('pt-BR', { month: 'long' }),
+    short: new Intl.DateTimeFormat('pt-BR', { month: 'short' }),
+    shortYear: new Intl.DateTimeFormat('pt-BR', { month: 'short', year: 'numeric' }),
+    day: new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' }),
+  };
+  const nameCache = new Map();
+  const memo = (key, make) => {
+    let v = nameCache.get(key);
+    if (v === undefined) {
+      v = make();
+      if (nameCache.size > 600) nameCache.clear();
+      nameCache.set(key, v);
+    }
+    return v;
+  };
+  const fmtKey = (opts) => {
+    if (!opts) return 'long';
+    if (opts.weekday) return 'day';
+    if (opts.year) return opts.month === 'short' ? 'shortYear' : 'long';
+    return opts.month === 'short' ? 'short' : 'monthOnly';
+  };
+  const monthName = (ym, opts) => {
+    const k = fmtKey(opts);
+    return memo(`m${k}${ym}`, () => cap(DATE_FMT[k].format(parseISO(`${ym}-01`))));
+  };
   const monthShort = (ym) => monthName(ym, { month: 'short' }).replace('.', '');
   const dayLabel = (iso) => {
     const today = todayISO();
@@ -108,7 +133,7 @@
     const y = new Date();
     y.setDate(y.getDate() - 1);
     if (iso === `${y.getFullYear()}-${pad(y.getMonth() + 1)}-${pad(y.getDate())}`) return 'Ontem';
-    return cap(parseISO(iso).toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' }));
+    return memo(`d${iso}`, () => cap(DATE_FMT.day.format(parseISO(iso))));
   };
   // Data padrão de um novo lançamento: hoje, ou o mesmo dia no mês que está aberto.
   const defaultDate = () => {
@@ -783,6 +808,9 @@
     return { until: isoOf(d), label: 'nos próximos 15 dias' };
   }
 
+  const BILLS_HOME_MAX = 5;
+  const BILLS_SHEET_MAX = 40;
+
   function billsCard() {
     if (ui.month !== currentMonth()) return '';
     const hasBills = state.transactions.some((t) => (isBill(t) || t.cardId) && t.date >= todayISO()) || pendingBills(todayISO()).length;
@@ -795,7 +823,8 @@
       <div class="card-head"><div><h2 class="card-title">📅 Contas a pagar</h2>
         <p class="card-sub">${esc(h.label)}${items.length ? ` · total <strong class="num">${money(total)}</strong>` : ''}</p></div>
         ${late.length ? `<span class="badge critical">⚠ ${late.length} ${late.length === 1 ? 'atrasada' : 'atrasadas'}</span>` : ''}</div>
-      ${items.length ? `<ul class="bill-list">${items.map(billRow).join('')}</ul>`
+      ${items.length ? `<ul class="bill-list">${items.slice(0, BILLS_HOME_MAX).map(billRow).join('')}</ul>
+        ${items.length > BILLS_HOME_MAX ? `<button class="bills-more" type="button" data-action="all-bills">+ ${items.length - BILLS_HOME_MAX} ${items.length - BILLS_HOME_MAX === 1 ? 'outra conta' : 'outras contas'} · ver todas</button>` : ''}`
         : `<p class="bills-empty">🎉 Nenhuma conta em aberto ${esc(h.label)}.</p>`}
       <div class="bills-actions">
         <button class="link-btn" type="button" data-action="all-bills">Ver próximas contas</button>
@@ -807,7 +836,8 @@
   function openBillsSheet() {
     const d = new Date();
     d.setDate(d.getDate() + 60);
-    const items = pendingBills(isoOf(d));
+    const all = pendingBills(isoOf(d));
+    const items = all.slice(0, BILLS_SHEET_MAX);
     const groups = [];
     for (const b of items) {
       const label = b.date < todayISO() ? 'Atrasadas' : monthName(monthOf(b.date));
@@ -815,7 +845,7 @@
       groups[groups.length - 1].items.push(b);
     }
     const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">📅 Próximas contas</h2>
-      <p class="hint">Contas em aberto nos próximos 60 dias. Toque em “✓ Paguei” quando pagar.</p>
+      <p class="hint">Contas em aberto nos próximos 60 dias. Toque em “✓ Paguei” quando pagar.${all.length > items.length ? ` Mostrando as ${items.length} primeiras de ${all.length}.` : ''}</p>
       ${groups.length ? groups.map((g) => `<h3 class="tx-day"><span>${esc(g.label)}</span>
         <span class="num">${money(sum(g.items.map((b) => b.amount)))}</span></h3><ul class="bill-list">${g.items.map(billRow).join('')}</ul>`).join('')
         : '<p class="bills-empty">🎉 Nenhuma conta em aberto nos próximos 60 dias.</p>'}
@@ -904,6 +934,29 @@
   const EYE = '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>';
   const EYE_OFF = '<path d="M3 3l18 18M10.6 5.1A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2M6.6 6.6C3.8 8.4 2 12 2 12s3.5 7 10 7c1.8 0 3.4-.5 4.8-1.3M9.9 9.9a3 3 0 0 0 4.2 4.2"/>';
 
+  const fixedTitleFor = () => ({ goals: 'Minhas metas', debts: 'Minhas dívidas' }[ui.tab]);
+
+  // Realce da aba imediato (resposta ao toque); o conteúdo vem no quadro seguinte.
+  let renderQueued = 0;
+  function goTab(tab) {
+    ui.tab = tab;
+    $$('.tabbar button').forEach((b) => {
+      const active = b.dataset.tab === tab;
+      b.classList.toggle('active', active);
+      if (active) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
+    });
+    renderSoon();
+    window.scrollTo(0, 0);
+  }
+  function renderSoon() {
+    if (renderQueued) return;
+    renderQueued = requestAnimationFrame(() => {
+      renderQueued = 0;
+      render();
+    });
+  }
+
   function render() {
     ui.hide = !!state.settings.hideValues;
     const privacy = $('#privacyBtn');
@@ -913,7 +966,7 @@
     const fab = { debts: ['Nova dívida', 'Cadastrar dívida'], goals: ['Nova meta', 'Criar meta'] }[ui.tab] || ['Adicionar', 'Adicionar gasto ou ganho'];
     $('#fab span').textContent = fab[0];
     $('#fab').setAttribute('aria-label', fab[1]);
-    const fixedTitle = { goals: 'Minhas metas', debts: 'Minhas dívidas' }[ui.tab];
+    const fixedTitle = fixedTitleFor();
     $('#monthLabel').textContent = fixedTitle || monthName(ui.month);
     $('#monthLabel').disabled = !!fixedTitle;
     $('#prevMonth').hidden = !!fixedTitle;
@@ -930,13 +983,15 @@
     if (ui.tab === 'transactions') renderTxList();
     if (ui.tab === 'debts') bindPlan();
     // Ao trocar de aba, os cartões entram em sequência.
-    if (ui.lastTab !== ui.tab) {
+    // As animações começam sozinhas nos elementos novos: não precisa forçar layout.
+    const motion = ui.motion;
+    ui.motion = '';
+    if (motion || ui.lastTab !== ui.tab) {
       ui.lastTab = ui.tab;
-      view.classList.remove('enter');
-      void view.offsetWidth;
-      view.classList.add('enter');
+      view.classList.remove('enter', 'slide-next', 'slide-prev');
+      view.classList.add(motion || 'enter');
       clearTimeout(ui.enterTimer);
-      ui.enterTimer = setTimeout(() => view.classList.remove('enter'), 700);
+      ui.enterTimer = setTimeout(() => view.classList.remove('enter', 'slide-next', 'slide-prev'), 450);
     }
   }
 
@@ -3645,25 +3700,20 @@
   document.addEventListener('click', (e) => {
     const tab = e.target.closest('.tabbar button');
     if (tab) {
-      ui.tab = tab.dataset.tab;
-      render();
-      window.scrollTo(0, 0);
+      if (tab.dataset.tab !== ui.tab) goTab(tab.dataset.tab);
+      else window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     const el = e.target.closest('[data-action]');
     if (!el || el.closest('#sheet')) return;
     const { action } = el.dataset;
     if (action === 'go-tab') {
-      ui.tab = el.dataset.tab;
-      render();
-      window.scrollTo(0, 0);
+      goTab(el.dataset.tab);
     } else if (action === 'filter-cat') {
       ui.category = el.dataset.cat;
       ui.filter = 'expense';
       ui.query = '';
-      ui.tab = 'transactions';
-      render();
-      window.scrollTo(0, 0);
+      goTab('transactions');
     } else if (action === 'clear-cat') {
       ui.category = null;
       render();
@@ -3762,11 +3812,9 @@
   function changeMonth(n) {
     ui.month = shiftMonth(ui.month, n);
     ui.trendSel = null;
-    render();
-    const view = $('#view');
-    view.classList.remove('slide-next', 'slide-prev');
-    void view.offsetWidth;
-    view.classList.add(n > 0 ? 'slide-next' : 'slide-prev');
+    ui.motion = n > 0 ? 'slide-next' : 'slide-prev';
+    $('#monthLabel').textContent = fixedTitleFor() || monthName(ui.month);
+    renderSoon();
   }
 
   $('#prevMonth').addEventListener('click', () => changeMonth(-1));

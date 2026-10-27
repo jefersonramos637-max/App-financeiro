@@ -634,7 +634,9 @@ svg { display: block; }
   font-weight: 600;
   color: var(--muted);
   min-width: 0;
+  transition: color 0.12s ease;
 }
+.tabbar button:active { transform: scale(0.94); }
 .tabbar button.active { color: var(--accent); }
 
 /* Painel inferior (sheet) */
@@ -713,10 +715,10 @@ svg { display: block; }
 }
 
 /* Troca de mês */
-.view.slide-next { animation: slide-next 0.2s ease-out; }
-.view.slide-prev { animation: slide-prev 0.2s ease-out; }
-@keyframes slide-next { from { transform: translateX(24px); opacity: 0.4; } to { transform: none; opacity: 1; } }
-@keyframes slide-prev { from { transform: translateX(-24px); opacity: 0.4; } to { transform: none; opacity: 1; } }
+.view.slide-next > *:nth-child(-n+5) { animation: slide-next 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.view.slide-prev > *:nth-child(-n+5) { animation: slide-prev 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes slide-next { from { transform: translate3d(16px, 0, 0); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes slide-prev { from { transform: translate3d(-16px, 0, 0); opacity: 0; } to { transform: none; opacity: 1; } }
 
 /* Pontos de restauração */
 .snap-row {
@@ -904,6 +906,7 @@ svg { display: block; }
 .bill-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .bill-pay { padding: 6px 10px; font-size: 0.8rem; background: var(--accent-soft); color: var(--text); }
 .bills-empty { margin: 0; color: var(--text-2); }
+.bills-more { width: 100%; margin-top: 6px; padding: 10px; border: 0; border-radius: 12px; background: var(--surface-2); color: var(--accent); font-weight: 700; }
 .bills-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; margin-top: 10px; }
 .tx-side { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 
@@ -973,16 +976,17 @@ svg { display: block; }
 .splash-dots span:nth-child(2) { animation-delay: 0.15s; }
 .splash-dots span:nth-child(3) { animation-delay: 0.3s; }
 @keyframes pop { from { transform: scale(0.6); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes fade-up { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes fade-up { from { transform: translate3d(0, 6px, 0); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes dot { 0%, 80%, 100% { transform: scale(0.5); opacity: 0.4; } 40% { transform: scale(1); opacity: 1; } }
 
 /* Cartões entrando ao trocar de aba */
-.view.enter > * { animation: fade-up 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
-.view.enter > *:nth-child(2) { animation-delay: 0.04s; }
-.view.enter > *:nth-child(3) { animation-delay: 0.08s; }
-.view.enter > *:nth-child(4) { animation-delay: 0.12s; }
-.view.enter > *:nth-child(5) { animation-delay: 0.16s; }
-.view.enter > *:nth-child(n+6) { animation-delay: 0.2s; }
+.view.enter > *:nth-child(-n+5) { animation: fade-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.view.enter > *:nth-child(2) { animation-delay: 0.03s; }
+.view.enter > *:nth-child(3) { animation-delay: 0.06s; }
+.view.enter > *:nth-child(n+4) { animation-delay: 0.09s; }
+
+/* Cartões abaixo da dobra só são medidos e desenhados quando chegam perto da tela. */
+.view > .card:nth-child(n+5) { content-visibility: auto; contain-intrinsic-size: auto 220px; }
 
 /* Cartão de versão nova */
 .update-card {
