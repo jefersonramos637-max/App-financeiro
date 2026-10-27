@@ -6,7 +6,11 @@ instalado na tela inicial como um app e continua funcionando sem internet.
 ## O que ele faz
 
 - **Saldo do mês**: receitas, despesas e quanto sobrou.
-- **Quanto posso gastar por dia**: divide o que resta da renda pelos dias que faltam no mês.
+- **Meu salário**: dias e valores de pagamento (ex.: dia 15 e dia 30). O app lança o salário sozinho
+  nos próximos 12 meses e, se o dia cair no fim de semana, pode antecipar para a sexta.
+- **Quanto posso gastar por dia**: com o salário configurado, conta até o próximo pagamento: o que já
+  entrou menos tudo o que sai antes dele (contas e parcelas futuras inclusive), dividido pelos dias
+  que faltam. Sem salário configurado, divide o saldo pelos dias que faltam no mês.
 - **Lançamentos**: receitas e despesas por categoria, com busca e filtros.
   - **Parcelado**: divide uma compra em N parcelas nos próximos meses (ex.: 10× no cartão).
   - **Fixa mensal**: repete contas fixas (aluguel, internet) pelos próximos meses.

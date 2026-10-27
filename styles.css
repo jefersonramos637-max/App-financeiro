@@ -819,6 +819,13 @@ svg { display: block; }
 }
 .debt-preview p { margin: 0; }
 
+/* Salário */
+.pay-box { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px; background: var(--surface-2); }
+.pay-title { margin: 0; font-weight: 700; }
+.pay-title small { font-weight: 500; color: var(--muted); }
+.pay-box .field input { background: var(--surface); }
+.tip-small { margin-top: 6px !important; font-size: 0.85rem; }
+
 /* Explicação de cada aba */
 .help {
   display: flex;

@@ -123,7 +123,7 @@
   const MAX_CENTS = 1e11;
   const defaultSettings = () => ({ hideValues: false, lockAfter: 60, lastBackupAt: 0, helpSeen: {} });
   const defaultState = () => ({
-    version: 3, transactions: [], budgets: {}, goals: [], debts: [], demo: false, settings: defaultSettings(),
+    version: 4, transactions: [], budgets: {}, goals: [], debts: [], salary: null, demo: false, settings: defaultSettings(),
   });
 
   const isISO = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -156,6 +156,7 @@
         if (t.groupId) tx.groupId = String(t.groupId);
         if (t.installment) tx.installment = String(t.installment).slice(0, 10);
         if (t.recurring) tx.recurring = true;
+        if (typeof t.salaryKey === 'string') tx.salaryKey = t.salaryKey.slice(0, 20);
         if (t.debtId && Number.isInteger(t.debtNo)) {
           tx.debtId = String(t.debtId);
           tx.debtNo = t.debtNo;
@@ -178,6 +179,21 @@
         deadline: typeof g.deadline === 'string' && /^\d{4}-\d{2}$/.test(g.deadline) ? g.deadline : '',
         createdAt: Number(g.createdAt) || Date.now(),
       }));
+    const rsal = raw.salary;
+    if (rsal && Array.isArray(rsal.paydays)) {
+      const paydays = rsal.paydays
+        .filter((p) => p && Number.isInteger(p.day) && p.day >= 1 && p.day <= 31
+          && Number.isInteger(p.amount) && p.amount >= 0 && p.amount <= MAX_CENTS)
+        .slice(0, 2)
+        .map((p) => ({ day: p.day, amount: p.amount }));
+      const ym = (v) => (typeof v === 'string' && /^\d{4}-\d{2}$/.test(v) ? v : '');
+      if (paydays.length) {
+        s.salary = {
+          paydays, weekendBefore: rsal.weekendBefore !== false,
+          generatedUntil: ym(rsal.generatedUntil), startYM: ym(rsal.startYM) || currentMonth(),
+        };
+      }
+    }
     s.debts = (Array.isArray(raw.debts) ? raw.debts : [])
       .filter((d) => d && typeof d.name === 'string' && isPosInt(d.amount) && Number.isInteger(d.total)
         && d.total >= 1 && d.total <= 600 && isISO(d.nextDue))
@@ -472,6 +488,104 @@
     if (changed) save();
   }
 
+  // ---------- Salário ----------
+  // Dias e valores fixos de pagamento. O app lança o salário sozinho nos próximos 12 meses
+  // e calcula quanto dá para gastar por dia até o próximo pagamento.
+
+  const isoOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+  // Data do pagamento no mês; se cair no fim de semana e a opção estiver ligada, vai para a sexta.
+  function payDate(ym, day, weekendBefore) {
+    const iso = dueIn(ym, day);
+    if (!weekendBefore) return iso;
+    const d = parseISO(iso);
+    const wd = d.getDay();
+    if (wd === 6) d.setDate(d.getDate() - 1);
+    if (wd === 0) d.setDate(d.getDate() - 2);
+    return isoOf(d);
+  }
+
+  // Pagamentos do mês anterior, do atual e do próximo, em ordem de data.
+  function payDatesNear() {
+    const sal = state.salary;
+    if (!sal) return [];
+    const cur = currentMonth();
+    const list = [];
+    for (const ym of [shiftMonth(cur, -1), cur, shiftMonth(cur, 1)]) {
+      sal.paydays.forEach((p, i) => list.push({ ym, i, day: p.day, amount: p.amount, date: payDate(ym, p.day, sal.weekendBefore) }));
+    }
+    return list.sort((a, b) => (a.date < b.date ? -1 : 1));
+  }
+
+  function salaryTx(ym, i) {
+    const p = state.salary.paydays[i];
+    return {
+      id: uid(), type: 'income', category: 'salario', amount: p.amount,
+      description: state.salary.paydays.length > 1 ? `Salário (dia ${p.day})` : 'Salário',
+      date: payDate(ym, p.day, state.salary.weekendBefore), salaryKey: `${ym}#${i}`, createdAt: Date.now() + i,
+    };
+  }
+
+  function addSalaryMonth(ym, skipBefore) {
+    state.salary.paydays.forEach((p, i) => {
+      if (!p.amount) return;
+      const key = `${ym}#${i}`;
+      if (state.transactions.some((t) => t.salaryKey === key)) return;
+      const tx = salaryTx(ym, i);
+      if (skipBefore && tx.date < skipBefore) return;
+      state.transactions.push(tx);
+    });
+  }
+
+  // Refaz os salários de hoje em diante (usado ao salvar a configuração).
+  function rebuildSalary(includePastThisMonth) {
+    const today = todayISO();
+    const cur = currentMonth();
+    state.transactions = state.transactions.filter((t) => !(t.salaryKey && t.date >= today));
+    if (!state.salary) return;
+    for (let k = 0; k < 12; k++) {
+      const ym = shiftMonth(cur, k);
+      addSalaryMonth(ym, k === 0 && includePastThisMonth ? null : today);
+    }
+    state.salary.generatedUntil = shiftMonth(cur, 11);
+  }
+
+  // Mantém sempre 12 meses de salário lançados à frente.
+  function ensureSalary() {
+    const sal = state.salary;
+    if (!sal || !sal.generatedUntil) return;
+    const target = shiftMonth(currentMonth(), 11);
+    let ym = sal.generatedUntil;
+    if (ym >= target) return;
+    while (ym < target) {
+      ym = shiftMonth(ym, 1);
+      addSalaryMonth(ym, null);
+    }
+    sal.generatedUntil = target;
+    save();
+  }
+
+  // Quanto dá para gastar até o próximo pagamento: o que já entrou desde o mês do último
+  // pagamento, menos tudo o que sai antes do próximo (inclusive contas e parcelas futuras).
+  function salaryAllowance() {
+    const today = todayISO();
+    const dates = payDatesNear();
+    const next = dates.find((p) => p.date > today);
+    if (!next) return null;
+    const last = dates.filter((p) => p.date <= today).pop();
+    const start = `${last ? monthOf(last.date) : currentMonth()}-01`;
+    let inc = 0;
+    let exp = 0;
+    for (const t of state.transactions) {
+      if (t.date < start) continue;
+      if (t.type === 'income' && t.date <= today) inc += t.amount;
+      else if (t.type === 'expense' && t.date < next.date) exp += t.amount;
+    }
+    return { next, days: daysUntil(next.date), inc, exp, available: inc - exp };
+  }
+
+  const salaryLabel = () => (state.salary ? `dia${state.salary.paydays.length > 1 ? 's' : ''} ${state.salary.paydays.map((p) => p.day).join(' e ')}` : '');
+
   // ---------- Telas ----------
 
   const EYE = '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>';
@@ -524,7 +638,7 @@
   }
 
   function viewHome() {
-    if (!state.transactions.length && !state.goals.length && !state.debts.length) return welcome();
+    if (!state.transactions.length && !state.goals.length && !state.debts.length && !state.salary) return welcome();
     const list = txOfMonth(ui.month);
     const { inc, exp, bal } = totals(list);
     return [
@@ -562,9 +676,9 @@
     return `<section class="card empty">
       <div class="empty-icon" aria-hidden="true">👋</div>
       <h2>Bem-vindo ao Meu Bolso</h2>
-      <p>Comece lançando sua renda do mês. Depois registre cada gasto e o app mostra quanto você ainda pode gastar por dia.</p>
+      <p>Comece pelo seu salário. Depois registre cada gasto e o app mostra quanto você ainda pode gastar por dia até o próximo pagamento.</p>
       <div class="actions">
-        <button class="btn primary block" type="button" data-action="new-income">Lançar minha renda</button>
+        <button class="btn primary block" type="button" data-action="salary">💼 Configurar meu salário</button>
         <button class="btn block" type="button" data-action="new-debt">Cadastrar uma dívida</button>
         <button class="btn block" type="button" data-action="load-demo">Ver com dados de exemplo</button>
       </div>
@@ -572,7 +686,7 @@
     <section class="card">
       <h2 class="card-title">Como se regrar em 4 passos</h2>
       <ol class="install-steps" style="margin-top:10px">
-        <li><strong>Lance a renda e as contas fixas</strong> (aluguel, luz, internet). Marque “Todo mês” para repetir nos próximos meses.</li>
+        <li><strong>Configure seu salário</strong> (dias e valores) e lance as contas fixas, como aluguel e internet, marcando “Todo mês”.</li>
         <li><strong>Cadastre suas dívidas</strong> na aba Dívidas. O app conta sozinho quantas parcelas faltam.</li>
         <li><strong>Defina limites</strong> para as categorias que mais pesam, na aba Limites.</li>
         <li><strong>Registre todo gasto na hora.</strong> Leva 5 segundos e evita surpresa no fim do mês.</li>
@@ -584,11 +698,27 @@
     const cur = currentMonth();
     let icon = '💡';
     let body;
-    if (ui.month === cur) {
+    const allow = ui.month === cur && state.salary ? salaryAllowance() : null;
+    if (allow) {
+      const when = allow.days === 1 ? 'amanhã' : `daqui a ${allow.days} dias, em ${shortDate(allow.next.date)}`;
+      if (allow.inc === 0) {
+        body = `<p>Seu próximo salário (dia ${allow.next.day}) cai ${when}. Lance o que você recebeu neste mês para eu calcular quanto pode gastar por dia.</p>
+          <button class="link-btn" type="button" data-action="new-income">Lançar o que recebi</button>`;
+      } else if (allow.available > 0) {
+        icon = '📅';
+        body = `<p>Você pode gastar até <span class="tip-big num">${money(Math.floor(allow.available / allow.days))} por dia</span>
+          até o salário do dia ${allow.next.day} (${when}).</p>
+          <p class="tip-small">Disponível agora: <strong class="num">${money(allow.available)}</strong>, já descontando as contas e parcelas que vencem antes.</p>`;
+      } else {
+        icon = '🚨';
+        body = `<p><strong>Até o salário do dia ${allow.next.day} faltam ${money(-allow.available)}</strong> para cobrir as contas que vencem antes dele.
+          Evite gastos novos até lá.</p>`;
+      }
+    } else if (ui.month === cur) {
       const left = daysInMonth(cur) - new Date().getDate() + 1;
       if (inc === 0) {
-        body = `<p>Lance sua renda deste mês (salário, comissão, extras) para eu calcular quanto você pode gastar por dia.</p>
-          <button class="link-btn" type="button" data-action="new-income">Lançar renda</button>`;
+        body = `<p>Configure os dias em que você recebe o salário para eu calcular quanto pode gastar por dia até o próximo pagamento.</p>
+          <button class="link-btn" type="button" data-action="salary">Configurar meu salário</button>`;
       } else if (bal > 0) {
         icon = '📅';
         body = `<p>Você pode gastar até <span class="tip-big num">${money(Math.floor(bal / left))} por dia</span>
@@ -714,7 +844,7 @@
 
   function txRow(t) {
     const c = catById(t.type, t.category);
-    const meta = [c.name, t.installment && `parcela ${t.installment}`, t.recurring && 'todo mês'].filter(Boolean).join(' · ');
+    const meta = [c.name, t.installment && `parcela ${t.installment}`, t.recurring && 'todo mês', t.salaryKey && 'automático'].filter(Boolean).join(' · ');
     return `<li><button class="tx" type="button" data-action="edit-tx" data-id="${esc(t.id)}">
       <span class="tx-icon" aria-hidden="true">${c.icon}</span>
       <span class="tx-main"><span class="tx-desc">${esc(t.description || c.name)}</span>
@@ -1025,18 +1155,44 @@
 
   // Campo de valor no estilo app de banco: os dígitos entram pelos centavos.
   function bindMoney(input, cents) {
-    const set = (c) => {
-      input.dataset.cents = String(c);
-      input.value = fmtMoney(c);
-    };
+    const MAX = 99999999999;
     const toEnd = () => requestAnimationFrame(() => {
       try { input.setSelectionRange(input.value.length, input.value.length); } catch { /* sem suporte */ }
     });
+    const set = (c) => {
+      const v = Math.min(MAX, Math.max(0, c));
+      input.dataset.cents = String(v);
+      input.value = fmtMoney(v);
+      if (document.activeElement === input) toEnd();
+    };
     set(cents || 0);
-    input.addEventListener('input', () => {
-      set(parseInt(input.value.replace(/\D/g, '').slice(0, 11) || '0', 10));
-      toEnd();
+    // Avisa quem acompanha o campo (prévias), já que o evento padrão foi cancelado.
+    const changed = (c) => {
+      set(c);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    // Cada número entra pelo fim, não importa onde está o cursor (como nos apps de banco).
+    input.addEventListener('beforeinput', (e) => {
+      const type = e.inputType || '';
+      const all = input.value && input.selectionStart === 0 && input.selectionEnd === input.value.length;
+      const cur = all ? 0 : centsOf(input);
+      if (type === 'insertFromPaste' || type === 'insertFromDrop') {
+        e.preventDefault();
+        const digits = String(e.data ?? (e.dataTransfer && e.dataTransfer.getData('text')) ?? '').replace(/\D/g, '');
+        if (digits) changed(parseInt(digits.slice(0, 11), 10));
+      } else if (type.startsWith('insert')) {
+        e.preventDefault();
+        const digits = String(e.data ?? '').replace(/\D/g, '');
+        let c = cur;
+        for (const d of digits) c = c * 10 + Number(d);
+        if (digits && c <= MAX) changed(c);
+      } else if (type.startsWith('delete')) {
+        e.preventDefault();
+        changed(all ? 0 : Math.floor(cur / 10));
+      }
     });
+    // Navegadores sem beforeinput (e valores colocados pelo próprio app).
+    input.addEventListener('input', () => set(parseInt(input.value.replace(/\D/g, '').slice(0, 11) || '0', 10)));
     input.addEventListener('focus', toEnd);
   }
   const centsOf = (input) => parseInt(input.dataset.cents || '0', 10);
@@ -1522,6 +1678,127 @@
     });
   }
 
+  function openSalarySheet() {
+    const sal = state.salary;
+    const isNew = !sal;
+    const p1 = sal ? sal.paydays[0] : { day: 15, amount: 0 };
+    const p2 = sal ? sal.paydays[1] || { day: '', amount: 0 } : { day: 30, amount: 0 };
+    const today = todayISO();
+    const cur = currentMonth();
+    const manual = sum(txOfMonth(cur).filter((t) => t.type === 'income' && t.category === 'salario' && !t.salaryKey).map((t) => t.amount));
+    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">💼 Meu salário</h2>
+      <form id="salaryForm" class="form" novalidate>
+        <p class="hint">Informe os dias em que você recebe. O app lança o salário sozinho todo mês e mostra quanto você pode gastar por dia até o próximo pagamento.</p>
+        <div class="pay-box">
+          <p class="pay-title">1º pagamento</p>
+          <div class="field-row">
+            <div class="field"><label for="payDay1">Dia</label>
+              <input id="payDay1" type="number" min="1" max="31" inputmode="numeric" value="${p1.day}"></div>
+            <div class="field"><label for="payAmt1">Valor</label>
+              <input id="payAmt1" inputmode="numeric" autocomplete="off"></div>
+          </div>
+        </div>
+        <div class="pay-box">
+          <p class="pay-title">2º pagamento <small>(deixe o dia vazio se recebe só uma vez)</small></p>
+          <div class="field-row">
+            <div class="field"><label for="payDay2">Dia</label>
+              <input id="payDay2" type="number" min="1" max="31" inputmode="numeric" value="${p2.day}"></div>
+            <div class="field"><label for="payAmt2">Valor</label>
+              <input id="payAmt2" inputmode="numeric" autocomplete="off"></div>
+          </div>
+        </div>
+        <p class="hint">Não sabe o valor exato ainda? Pode deixar R$ 0,00: o app usa só as datas e você lança o valor quando receber.</p>
+        <label class="check"><input type="checkbox" id="payWeekend"${!sal || sal.weekendBefore ? ' checked' : ''}>
+          <span>Se o dia cair no sábado ou domingo, recebo na sexta antes</span></label>
+        ${isNew ? `<label class="check"><input type="checkbox" id="payPast"${manual ? '' : ' checked'}>
+          <span>Lançar também os pagamentos deste mês que já caíram</span></label>
+          ${manual ? `<p class="hint">⚠ Você já lançou ${fmtMoney(manual)} de salário neste mês. Deixe a opção acima desmarcada para não contar duas vezes.</p>` : ''}` : ''}
+        <div class="debt-preview" id="salaryPreview" aria-live="polite"></div>
+        <div class="actions">
+          <button class="btn primary block" type="submit">Salvar</button>
+          ${isNew ? '' : '<button class="btn danger block" type="button" id="removeSalary">Parar de lançar o salário</button><div id="confirmSlot"></div>'}
+        </div>
+      </form>`);
+    const a1 = $('#payAmt1', root);
+    const a2 = $('#payAmt2', root);
+    bindMoney(a1, p1.amount);
+    bindMoney(a2, p2.amount);
+    const dayOf = (id) => {
+      const v = parseInt($(`#${id}`, root).value, 10);
+      return v >= 1 && v <= 31 ? v : null;
+    };
+    const read = () => {
+      const paydays = [];
+      if (dayOf('payDay1')) paydays.push({ day: dayOf('payDay1'), amount: centsOf(a1) });
+      if (dayOf('payDay2')) paydays.push({ day: dayOf('payDay2'), amount: centsOf(a2) });
+      return paydays.sort((x, y) => x.day - y.day);
+    };
+    function preview() {
+      const paydays = read();
+      const box = $('#salaryPreview', root);
+      if (!paydays.length) {
+        box.innerHTML = '<p>Informe pelo menos um dia de pagamento.</p>';
+        return;
+      }
+      const weekend = $('#payWeekend', root).checked;
+      const total = sum(paydays.map((p) => p.amount));
+      const lines = paydays.map((p) => {
+        const d = payDate(cur, p.day, weekend);
+        const nd = d > today ? d : payDate(shiftMonth(cur, 1), p.day, weekend);
+        return `📅 Dia ${p.day}${p.amount ? `: <strong>${fmtMoney(p.amount)}</strong>` : ''} · próximo em ${shortDate(nd)}`;
+      });
+      if (total) lines.push(`💰 Total por mês: <strong>${fmtMoney(total)}</strong>`);
+      box.innerHTML = lines.map((l) => `<p>${l}</p>`).join('');
+    }
+    preview();
+    ['input', 'change'].forEach((ev) => ['payDay1', 'payDay2', 'payAmt1', 'payAmt2', 'payWeekend']
+      .forEach((id) => $(`#${id}`, root).addEventListener(ev, preview)));
+
+    $('#salaryForm', root).addEventListener('submit', (e) => {
+      e.preventDefault();
+      const paydays = read();
+      if (!paydays.length) {
+        toast('Informe pelo menos um dia de pagamento (1 a 31).');
+        $('#payDay1', root).focus();
+        return;
+      }
+      if (paydays.length === 2 && paydays[0].day === paydays[1].day) {
+        toast('Os dois pagamentos estão no mesmo dia. Junte os valores num só.');
+        return;
+      }
+      const past = $('#payPast', root);
+      state.salary = {
+        paydays,
+        weekendBefore: $('#payWeekend', root).checked,
+        generatedUntil: '',
+        startYM: sal ? sal.startYM : cur,
+      };
+      rebuildSalary(isNew && past ? past.checked : false);
+      save();
+      closeSheet();
+      render();
+      toast(isNew ? 'Salário configurado 💼' : 'Salário atualizado');
+    });
+
+    const rm = $('#removeSalary', root);
+    if (rm) {
+      rm.addEventListener('click', () => confirmBox($('#confirmSlot', root),
+        'Parar de lançar o salário automaticamente? Os pagamentos que já caíram continuam no extrato.', [
+          { label: 'Cancelar', onClick: () => { $('#confirmSlot', root).innerHTML = ''; } },
+          {
+            label: 'Parar', cls: 'danger', onClick: () => {
+              state.salary = null;
+              rebuildSalary(false);
+              save();
+              closeSheet();
+              render();
+              toast('Salário automático desligado');
+            },
+          },
+        ]));
+    }
+  }
+
   function openDepositSheet(goal) {
     let mode = 'in';
     const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">${goal.icon} ${esc(goal.name)}</h2>
@@ -1663,7 +1940,7 @@
   }
 
   function openSettings() {
-    const empty = !state.transactions.length && !state.goals.length && !state.debts.length;
+    const empty = !state.transactions.length && !state.goals.length && !state.debts.length && !state.salary;
     const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
     const last = state.settings.lastBackupAt;
     const lockOpt = (v, label) => `<option value="${v}"${state.settings.lockAfter === v ? ' selected' : ''}>${label}</option>`;
@@ -1674,6 +1951,11 @@
         <li><strong>iPhone (Safari):</strong> botão Compartilhar → “Adicionar à Tela de Início”.</li>
         <li><strong>Android (Chrome):</strong> menu ⋮ → “Instalar app” ou “Adicionar à tela inicial”.</li>
       </ol>`}
+
+      <p class="eyebrow settings-section">Meu salário</p>
+      <div class="settings-list">
+        <button class="btn" type="button" id="salaryBtn">💼 ${state.salary ? `Recebo nos ${esc(salaryLabel())} · Editar` : 'Configurar meu salário'}</button>
+      </div>
 
       <p class="eyebrow settings-section">Segurança</p>
       <div class="settings-list">
@@ -1735,6 +2017,7 @@
 
     // Segurança
     const on = (id, fn) => { const el = $(`#${id}`, root); if (el) el.addEventListener('click', fn); };
+    on('salaryBtn', openSalarySheet);
     on('checkUpdate', () => {
       closeSheet();
       checkForUpdate();
@@ -2237,6 +2520,8 @@
       openTxSheet(null, 'income');
     } else if (action === 'load-demo') {
       loadDemo();
+    } else if (action === 'salary') {
+      openSalarySheet();
     } else if (action === 'new-debt') {
       openDebtSheet();
     } else if (action === 'edit-debt' || action === 'pay-debt') {
@@ -2349,6 +2634,7 @@
       return;
     }
     advanceDebts();
+    ensureSalary();
     render();
     snapshotToday().catch(() => {});
     if (swRegistration) swRegistration.update().catch(() => {});
@@ -2696,6 +2982,7 @@
   let started = false;
   function start() {
     advanceDebts();
+    ensureSalary();
     render();
     hideSplash();
     snapshotToday().catch(() => {});
