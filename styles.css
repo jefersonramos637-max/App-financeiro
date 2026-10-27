@@ -63,26 +63,36 @@
 }
 
 * { box-sizing: border-box; }
-/* Sem zoom: pan-x/pan-y bloqueia o gesto de pinça e o toque duplo. */
-html { -webkit-text-size-adjust: 100%; overscroll-behavior-y: none; touch-action: pan-x pan-y; }
+/* Página travada: nada desliza nem estica ao arrastar o dedo. Só o conteúdo (.view) rola, na vertical.
+   Sem zoom: pan-y não deixa pinça nem toque duplo, e o texto dos controles não é selecionado. */
+html {
+  height: 100%;
+  overflow: hidden;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+  touch-action: pan-y;
+}
 body {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
   margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: pan-y;
   background: var(--bg);
   color: var(--text);
   font: 15px/1.45 var(--font);
-  min-height: 100vh;
+  padding-top: env(safe-area-inset-top, 0px);
   -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0 0 auto;
-  height: env(safe-area-inset-top, 0px);
-  z-index: 30;
-  background: var(--bg);
-}
+input, textarea, select, .backup-text { -webkit-user-select: text; user-select: text; }
 button, input, select, textarea { font: inherit; color: inherit; }
-button { cursor: pointer; touch-action: manipulation; }
+button { cursor: pointer; touch-action: pan-y; }
 /* 16px ou mais evita o zoom automático do iPhone ao tocar num campo. */
 input, select, textarea { font-size: max(16px, 1em); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -91,8 +101,9 @@ svg { display: block; }
 
 /* Topo */
 .topbar {
-  position: sticky;
-  top: env(safe-area-inset-top, 0px);
+  position: relative;
+  flex: none;
+  touch-action: none;
   z-index: 20;
   display: flex;
   align-items: center;
@@ -142,6 +153,14 @@ svg { display: block; }
 .view {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   gap: 14px;
   max-width: 640px;
   margin: 0 auto;
@@ -151,6 +170,7 @@ svg { display: block; }
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   outline: none;
 }
+.view > * { flex: none; }
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -609,6 +629,7 @@ svg { display: block; }
 
 /* Abas */
 .tabbar {
+  touch-action: none;
   position: fixed;
   left: 0;
   right: 0;
@@ -655,9 +676,11 @@ svg { display: block; }
   max-width: 640px;
   max-height: 92vh;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior: none;
+  touch-action: pan-y;
   background: var(--surface);
   border-radius: 20px 20px 0 0;
+  position: relative;
   padding-top: 8px;
   padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   padding-left: max(16px, env(safe-area-inset-left, 0px));
@@ -666,6 +689,22 @@ svg { display: block; }
   transition: transform 0.2s ease-out;
 }
 .sheet.dragging { transition: none; }
+.sheet-close {
+  position: absolute;
+  top: 6px;
+  right: max(8px, env(safe-area-inset-right, 0px));
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text-2);
+  z-index: 2;
+}
+.sheet-close .ic { width: 18px; height: 18px; vertical-align: 0; }
+.sheet-title { padding-right: 44px; }
 .sheet-handle { width: 40px; height: 5px; border-radius: 3px; background: var(--surface-2); margin: 0 auto 10px; }
 .sheet-title { margin: 0 0 14px; font-size: 1.15rem; font-weight: 800; }
 @keyframes sheet-in { from { transform: translateY(40px); opacity: 0.6; } to { transform: none; opacity: 1; } }

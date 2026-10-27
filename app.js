@@ -34,6 +34,15 @@
   }
   let theme = readTheme();
 
+  // Gestos de arrastar (trocar de mês, puxar para atualizar, fechar painel): desligados por padrão.
+  const GESTURE_KEY = 'meubolso:gestos';
+  let gestures = false;
+  try { gestures = localStorage.getItem(GESTURE_KEY) === 'on'; } catch { /* sem armazenamento */ }
+  const setGestures = (on) => {
+    gestures = on;
+    try { localStorage.setItem(GESTURE_KEY, on ? 'on' : 'off'); } catch { /* sem armazenamento */ }
+  };
+
   // Cor da barra do navegador acompanha o fundo do app.
   function syncThemeColor() {
     const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
@@ -1174,7 +1183,11 @@
       else b.removeAttribute('aria-current');
     });
     renderSoon();
-    window.scrollTo(0, 0);
+    scrollViewTop();
+  }
+  function scrollViewTop(smooth) {
+    const v = $('#view');
+    if (v) v.scrollTo({ top: 0, behavior: smooth ? 'smooth' : 'auto' });
   }
   function renderSoon() {
     if (renderQueued) return;
@@ -3539,6 +3552,8 @@
         <div class="field"><span class="label" id="paletteLabel">Paleta de cores</span>
           <div class="palettes" id="themePalette" role="radiogroup" aria-labelledby="paletteLabel">${paletteButtons()}</div></div>
         <p class="hint">“Automático” segue o modo do iPhone. A aparência vale só neste aparelho.</p>
+        <label class="check"><input type="checkbox" id="gesturesOpt"${gestures ? ' checked' : ''}>
+          <span>Gestos de arrastar: deslizar para trocar de mês, puxar para atualizar e arrastar o painel para fechar</span></label>
       </div>
 
       <p class="eyebrow settings-section">Cartões de crédito</p>
@@ -3619,6 +3634,10 @@
         x.setAttribute('aria-checked', String(x === b));
       });
       $('#themePalette', root).innerHTML = paletteButtons();
+    });
+    $('#gesturesOpt', root).addEventListener('change', (e) => {
+      setGestures(e.target.checked);
+      toast(e.target.checked ? 'Gestos de arrastar ligados' : 'Gestos de arrastar desligados');
     });
     $('#themePalette', root).addEventListener('click', (e) => {
       const b = e.target.closest('[data-palette]');
@@ -4020,7 +4039,7 @@
         ui.tab = 'home';
         ui.month = currentMonth();
         render();
-        window.scrollTo(0, 0);
+        scrollViewTop();
         toast('Pronto! Dados adicionados ✓');
       });
     });
@@ -4264,7 +4283,7 @@
     const tab = e.target.closest('.tabbar button');
     if (tab) {
       if (tab.dataset.tab !== ui.tab) goTab(tab.dataset.tab);
-      else window.scrollTo({ top: 0, behavior: 'smooth' });
+      else scrollViewTop(true);
       return;
     }
     const el = e.target.closest('[data-action]');
@@ -4396,13 +4415,30 @@
     else openTxSheet();
   });
   $('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') closeSheet(); });
+  $('#sheetClose').addEventListener('click', closeSheet);
+
+  // Nada na tela desliza, estica ou dá zoom: só o conteúdo rola na vertical, e nas pontas não balança.
+  let touchY = 0;
+  document.addEventListener('touchstart', (e) => { touchY = e.touches[0].clientY; }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (!e.cancelable) return;
+    if (e.touches.length > 1) { e.preventDefault(); return; }
+    const sc = e.target.closest ? e.target.closest('.view, .sheet, textarea, .lock-inner, .lock') : null;
+    if (!sc) { e.preventDefault(); return; }
+    const dy = e.touches[0].clientY - touchY;
+    const atTop = sc.scrollTop <= 0;
+    const atBottom = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 1;
+    if ((atTop && dy > 0) || (atBottom && dy < 0)) e.preventDefault();
+  }, { passive: false });
+  // Se o teclado empurrar a página, volta para o lugar.
+  window.addEventListener('scroll', () => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); }, { passive: true });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
 
   // Arrastar para os lados troca o mês.
   let swipe = null;
   $('#view').addEventListener('touchstart', (e) => {
     const t = e.touches[0];
-    swipe = e.touches.length === 1 && t.clientX > 24 && t.clientX < window.innerWidth - 24
+    swipe = gestures && e.touches.length === 1 && t.clientX > 24 && t.clientX < window.innerWidth - 24
       ? { x: t.clientX, y: t.clientY, at: Date.now() } : null;
   }, { passive: true });
   $('#view').addEventListener('touchend', (e) => {
@@ -4419,7 +4455,7 @@
   const sheetEl = $('#sheet .sheet');
   let drag = null;
   sheetEl.addEventListener('touchstart', (e) => {
-    drag = sheetEl.scrollTop <= 0 && !e.target.closest('input, select, textarea') ? { y: e.touches[0].clientY, dy: 0 } : null;
+    drag = gestures && sheetEl.scrollTop <= 0 && !e.target.closest('input, select, textarea') ? { y: e.touches[0].clientY, dy: 0 } : null;
   }, { passive: true });
   sheetEl.addEventListener('touchmove', (e) => {
     if (!drag) return;
@@ -4722,7 +4758,7 @@
   const PULL_MAX = 110;
   const PULL_ARM = 70;
   window.addEventListener('touchstart', (e) => {
-    pull = window.scrollY <= 0 && e.touches.length === 1 && $('#sheet').hidden && !document.body.classList.contains('locked')
+    pull = gestures && $('#view').scrollTop <= 0 && e.touches.length === 1 && $('#sheet').hidden && !document.body.classList.contains('locked')
       && !ptr.classList.contains('loading') ? { y: e.touches[0].clientY, dy: 0, armed: false } : null;
   }, { passive: true });
   window.addEventListener('touchmove', (e) => {

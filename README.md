@@ -50,6 +50,9 @@ instalado na tela inicial como um app e continua funcionando sem internet.
   cartões, textos e destaque, em versão clara e escura, geradas em OKLCH e conferidas: texto 7:1, botões e
   links 5:1 ou mais e textos de apoio 4,5:1 ou mais. Fica guardada só neste aparelho, fora dos dados
   protegidos por PIN, e vale já na tela de bloqueio.
+- **Tela travada**: a página não desliza, não estica nem dá zoom; só o conteúdo rola na vertical e topo e
+  abas ficam parados. Os gestos de arrastar (deslizar para trocar de mês, puxar para atualizar, arrastar
+  o painel para fechar) são opcionais, desligados por padrão, em ⚙ → Aparência. Os painéis têm botão X.
 - **Ícones**: biblioteca própria de ícones de traço (24×24, mesmo estilo), usada nas categorias, dívidas,
   cartões e avisos. As metas têm 40 opções de ícone. Os emojis que ainda aparecem em textos são trocados
   por ícones automaticamente, e metas antigas que guardavam emoji são convertidas.

@@ -1,12 +1,12 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.16.0';
+const VERSION = '1.17.0';
 const NOTES = [
-  'Oito paletas de cores completas: Esmeralda, Oceano, Safira, Ametista, Rubi, Cobre, Oliva e Grafite',
-  'Cada paleta muda fundo, cartões, textos e destaque juntos, no modo claro e no escuro',
-  'Cores calculadas e conferidas para o texto ficar sempre legível',
-  'Escolha em ⚙ → Aparência, com prévia de cada paleta',
+  'A tela não desliza, não estica nem balança mais ao arrastar o dedo: só o conteúdo rola, para cima e para baixo',
+  'Sem zoom: pinça e toque duplo bloqueados, e o texto dos botões não é selecionado',
+  'Gestos de arrastar (trocar de mês, puxar para atualizar) agora são opcionais, em ⚙ → Aparência',
+  'Os painéis ganharam um botão X para fechar',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [
