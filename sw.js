@@ -1,12 +1,12 @@
 // Guarda os arquivos do app no aparelho para funcionar sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION e escreva as novidades em NOTES:
 // o app mostra essas frases no aviso de atualização e na tela de "Atualizado!".
-const VERSION = '1.15.0';
+const VERSION = '1.16.0';
 const NOTES = [
-  'Escolha a aparência: modo Automático, Claro ou Escuro, em ⚙ → Aparência',
-  'Seis cores para o app: Verde, Azul, Roxo, Laranja, Rosa e Grafite',
-  'A aparência vale também na tela de bloqueio e é lembrada neste aparelho',
-  'Visual com ícones de traço e 40 opções de ícone nas metas',
+  'Oito paletas de cores completas: Esmeralda, Oceano, Safira, Ametista, Rubi, Cobre, Oliva e Grafite',
+  'Cada paleta muda fundo, cartões, textos e destaque juntos, no modo claro e no escuro',
+  'Cores calculadas e conferidas para o texto ficar sempre legível',
+  'Escolha em ⚙ → Aparência, com prévia de cada paleta',
 ];
 const CACHE = `meubolso-${VERSION}`;
 const ASSETS = [

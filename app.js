@@ -8,21 +8,28 @@
   // protegidos por PIN, para já valer na tela de bloqueio.
 
   const THEME_KEY = 'meubolso:tema';
-  const ACCENTS = [
-    ['verde', 'Verde', '#146c5b'], ['azul', 'Azul', '#1d4ed8'], ['roxo', 'Roxo', '#6d28d9'],
-    ['laranja', 'Laranja', '#b45309'], ['rosa', 'Rosa', '#be185d'], ['grafite', 'Grafite', '#334155'],
+  const PALETTES = [
+    ['esmeralda', 'Esmeralda', { bg: '#eef5f3', surface: '#fcfffe', accent: '#047766' }, { bg: '#0a100e', surface: '#131917', accent: '#38a994' }],
+    ['oceano', 'Oceano', { bg: '#eef5f7', surface: '#fefefe', accent: '#07748a' }, { bg: '#0a0f11', surface: '#12181a', accent: '#35a4c0' }],
+    ['safira', 'Safira', { bg: '#f0f4f9', surface: '#fefeff', accent: '#2c68bf' }, { bg: '#0c0f13', surface: '#14171c', accent: '#5a98f3' }],
+    ['ametista', 'Ametista', { bg: '#f3f2f9', surface: '#fefeff', accent: '#7258bb' }, { bg: '#0e0e12', surface: '#17161c', accent: '#a087ef' }],
+    ['rubi', 'Rubi', { bg: '#f8f2f2', surface: '#fefefe', accent: '#b44157' }, { bg: '#120d0d', surface: '#1b1616', accent: '#ea7184' }],
+    ['cobre', 'Cobre', { bg: '#f8f2ef', surface: '#fefefe', accent: '#a65312' }, { bg: '#120d0b', surface: '#1b1613', accent: '#d88148' }],
+    ['oliva', 'Oliva', { bg: '#f3f4ee', surface: '#fefefc', accent: '#626f17' }, { bg: '#0e0f0a', surface: '#171812', accent: '#91a04d' }],
+    ['grafite', 'Grafite', { bg: '#f2f3f5', surface: '#fefeff', accent: '#383c42' }, { bg: '#0d0e10', surface: '#161719', accent: '#c3c6ca' }],
   ];
   const THEME_MODES = [['auto', 'Automático'], ['light', 'Claro'], ['dark', 'Escuro']];
+  // Nomes antigos das cores (versões anteriores) apontam para a paleta equivalente.
+  const OLD_ACCENT = { verde: 'esmeralda', azul: 'safira', roxo: 'ametista', laranja: 'cobre', rosa: 'rubi', grafite: 'grafite' };
 
   function readTheme() {
     try {
-      const o = JSON.parse(localStorage.getItem(THEME_KEY));
-      return {
-        mode: o && ['auto', 'light', 'dark'].includes(o.mode) ? o.mode : 'auto',
-        accent: o && ACCENTS.some((a) => a[0] === o.accent) ? o.accent : 'verde',
-      };
+      const o = JSON.parse(localStorage.getItem(THEME_KEY)) || {};
+      const legacy = OLD_ACCENT[o.accent];
+      const palette = PALETTES.some((x) => x[0] === o.palette) ? o.palette : (legacy || 'esmeralda');
+      return { mode: ['auto', 'light', 'dark'].includes(o.mode) ? o.mode : 'auto', palette };
     } catch {
-      return { mode: 'auto', accent: 'verde' };
+      return { mode: 'auto', palette: 'esmeralda' };
     }
   }
   let theme = readTheme();
@@ -36,7 +43,8 @@
   function applyTheme(t) {
     const root = document.documentElement;
     if (t.mode === 'auto') delete root.dataset.theme; else root.dataset.theme = t.mode;
-    if (t.accent === 'verde') delete root.dataset.accent; else root.dataset.accent = t.accent;
+    delete root.dataset.accent;
+    if (t.palette === 'esmeralda') delete root.dataset.palette; else root.dataset.palette = t.palette;
     syncThemeColor();
   }
   function saveTheme(t) {
@@ -44,6 +52,8 @@
     applyTheme(t);
     try { localStorage.setItem(THEME_KEY, JSON.stringify(t)); } catch { /* sem armazenamento */ }
   }
+  const prefersDark = () => window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const effectiveDark = () => theme.mode === 'dark' || (theme.mode === 'auto' && prefersDark());
   applyTheme(theme);
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (theme.mode === 'auto') syncThemeColor(); });
 
@@ -3491,6 +3501,16 @@
     toast(message);
   }
 
+  // Cartões de paleta: miniatura com fundo, cartão e destaque do modo que está valendo.
+  function paletteButtons() {
+    const dark = effectiveDark();
+    return PALETTES.map(([id, name, l, d]) => {
+      const c = dark ? d : l;
+      return `<button type="button" role="radio" aria-checked="${theme.palette === id}" aria-label="${name}" data-palette="${id}" class="${theme.palette === id ? 'active' : ''}"
+        style="--pb:${c.bg};--ps:${c.surface};--pa:${c.accent}"><span class="pal-prev"><i></i></span>${name}</button>`;
+    }).join('');
+  }
+
   function openSettings() {
     const empty = !state.transactions.length && !state.goals.length && !state.debts.length && !state.salary && !state.cards.length;
     const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
@@ -3516,9 +3536,8 @@
       <div class="settings-list">
         <div class="segmented three" id="themeMode" role="radiogroup" aria-label="Modo">${THEME_MODES.map(([id, label]) =>
           `<button type="button" role="radio" aria-checked="${theme.mode === id}" data-mode="${id}" class="${theme.mode === id ? 'active' : ''}">${label}</button>`).join('')}</div>
-        <div class="field"><span class="label" id="accentLabel">Cor do app</span>
-          <div class="swatches" id="themeAccent" role="radiogroup" aria-labelledby="accentLabel">${ACCENTS.map(([id, label, color]) =>
-            `<button type="button" role="radio" aria-checked="${theme.accent === id}" aria-label="${label}" title="${label}" data-accent="${id}" class="${theme.accent === id ? 'active' : ''}" style="--sw:${color}"><span></span></button>`).join('')}</div></div>
+        <div class="field"><span class="label" id="paletteLabel">Paleta de cores</span>
+          <div class="palettes" id="themePalette" role="radiogroup" aria-labelledby="paletteLabel">${paletteButtons()}</div></div>
         <p class="hint">“Automático” segue o modo do iPhone. A aparência vale só neste aparelho.</p>
       </div>
 
@@ -3599,12 +3618,13 @@
         x.classList.toggle('active', x === b);
         x.setAttribute('aria-checked', String(x === b));
       });
+      $('#themePalette', root).innerHTML = paletteButtons();
     });
-    $('#themeAccent', root).addEventListener('click', (e) => {
-      const b = e.target.closest('[data-accent]');
+    $('#themePalette', root).addEventListener('click', (e) => {
+      const b = e.target.closest('[data-palette]');
       if (!b) return;
-      saveTheme({ ...theme, accent: b.dataset.accent });
-      $$('#themeAccent button', root).forEach((x) => {
+      saveTheme({ ...theme, palette: b.dataset.palette });
+      $$('#themePalette button', root).forEach((x) => {
         x.classList.toggle('active', x === b);
         x.setAttribute('aria-checked', String(x === b));
       });

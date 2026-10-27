@@ -45,10 +45,11 @@ instalado na tela inicial como um app e continua funcionando sem internet.
   (padrão 10%, abaixo do CDI para ser conservador). Simula qualquer valor por mês e traz um guia de
   onde guardar com segurança conforme o prazo (Tesouro Selic, CDB, LCI/LCA, Tesouro IPCA+) e a tabela
   do Imposto de Renda. É informação educativa, não recomendação de investimento.
-- **Aparência**: em ⚙ → Aparência, modo Automático (segue o iPhone), Claro ou Escuro e seis cores
-  (Verde, Azul, Roxo, Laranja, Rosa, Grafite), cada uma com versão clara e escura de contraste
-  conferido. Fica guardada só neste aparelho, fora dos dados protegidos por PIN, e vale já na tela
-  de bloqueio.
+- **Aparência**: em ⚙ → Aparência, modo Automático (segue o iPhone), Claro ou Escuro e oito paletas
+  completas (Esmeralda, Oceano, Safira, Ametista, Rubi, Cobre, Oliva, Grafite). Cada paleta define fundo,
+  cartões, textos e destaque, em versão clara e escura, geradas em OKLCH e conferidas: texto 7:1, botões e
+  links 5:1 ou mais e textos de apoio 4,5:1 ou mais. Fica guardada só neste aparelho, fora dos dados
+  protegidos por PIN, e vale já na tela de bloqueio.
 - **Ícones**: biblioteca própria de ícones de traço (24×24, mesmo estilo), usada nas categorias, dívidas,
   cartões e avisos. As metas têm 40 opções de ícone. Os emojis que ainda aparecem em textos são trocados
   por ícones automaticamente, e metas antigas que guardavam emoji são convertidas.
