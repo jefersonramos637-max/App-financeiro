@@ -4414,7 +4414,8 @@
     else if (ui.tab === 'goals') openGoalSheet();
     else openTxSheet();
   });
-  $('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') closeSheet(); });
+  $('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet' && Date.now() - typingAt > 600) closeSheet(); });
+  let typingAt = 0;
   $('#sheetClose').addEventListener('click', closeSheet);
 
   // Nada na tela desliza, estica ou dá zoom: só o conteúdo rola na vertical, e nas pontas não balança.
@@ -4435,7 +4436,7 @@
   // Ao digitar, o painel vai para o topo da tela, longe do teclado (que cobre a parte de baixo).
   const sheetBack = $('#sheet');
   const typing = () => { const f = document.activeElement; return !!(f && f.closest && f.closest('.sheet') && /^(INPUT|TEXTAREA|SELECT)$/.test(f.tagName)); };
-  sheetBack.addEventListener('focusin', () => { if (typing()) sheetBack.classList.add('typing'); });
+  sheetBack.addEventListener('focusin', () => { if (typing()) { typingAt = Date.now(); sheetBack.classList.add('typing'); } });
   sheetBack.addEventListener('focusout', () => setTimeout(() => { if (!typing()) sheetBack.classList.remove('typing'); }, 80));
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
 
