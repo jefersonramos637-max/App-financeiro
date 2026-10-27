@@ -133,6 +133,3 @@ E abra `http://localhost:8000`.
 
 ## Conselheiro (aba Dívidas)
 O plano para quitar agora mostra um passo a passo (fatura do cartão, parcelas, propostas, reserva mínima) e, depois da última dívida, quanto o mesmo valor rende guardado todo mês. O valor que sobra pode ser informado por quinzena ou por mês.
-
-## Falar com a IA (aba Dívidas)
-Assistente que responde no próprio aparelho, sem chave e sem enviar dados: por onde começar, quanto falta, quando fica livre, propostas e simulações do tipo "e se eu pagar 200 a mais". Não é um modelo de linguagem: entende perguntas comuns sobre as dívidas.

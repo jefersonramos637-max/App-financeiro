@@ -2154,111 +2154,6 @@
     renderPlanResult();
   }
 
-
-  // ----- Assistente de dívidas (responde no próprio aparelho, sem enviar nada para fora) -----
-
-  const plain = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  const has = (q, ...words) => words.some((w) => q.includes(w));
-
-  // Primeiro valor em reais que aparece na pergunta: "500", "R$ 1.500,50", "200 reais".
-  function moneyIn(text) {
-    const m = text.match(/(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?/);
-    if (!m) return 0;
-    return Math.round(Number(m[1].replace(/\./g, '') + '.' + (m[2] || '0').padEnd(2, '0').slice(0, 2)) * 100);
-  }
-
-  function answerDebts(raw) {
-    const q = plain(raw);
-    const active = state.debts.filter((d) => leftOf(d) > 0);
-    if (!active.length) return 'Você não tem dívida em aberto no app 🎉. Se quiser, vá em <strong>Metas</strong> e transforme o valor das antigas parcelas em dinheiro guardado.';
-    const strategy = planStrategy();
-    const extra = extraMonthly();
-    const plan = payoffPlan(extra, strategy);
-    const first = plan.items[0];
-    const total = sum(active.map((d) => leftOf(d) * d.amount));
-    const late = active.filter((d) => d.overdue);
-    const parc = active.filter((d) => !d.overdue);
-    const named = active.find((d) => q.includes(plain(d.name).split(/[ (:]/)[0]) && plain(d.name).split(/[ (:]/)[0].length > 3);
-
-    if (has(q, 'e se', 'se eu pagar', 'se eu colocar', 'a mais', 'sobrar') && moneyIn(raw)) {
-      const v = moneyIn(raw) * (has(q, 'quinzena') ? 2 : 1);
-      const p = payoffPlan(v, strategy);
-      return p.freeYM
-        ? `Com <strong>${money(v)}</strong> a mais por mês, você fica livre de todas as dívidas em <strong>${esc(monthYear(p.freeYM))}</strong>${extra ? `. Hoje, com ${money(extra)}, seria em ${p.freeYM === plan.freeYM ? 'o mesmo mês' : esc(monthYear(plan.freeYM || '—'))}` : ''}.`
-        : `Com ${money(v)} a mais por mês ainda não dá para quitar tudo num prazo razoável. Tente um valor maior ou negocie as propostas.`;
-    }
-    if (has(q, 'primeiro', 'comecar', 'comeco', 'por onde', 'prioridade', 'ordem', 'qual pagar', 'qual devo')) {
-      const best = bestOffer(first.d);
-      return `Comece por <strong>${esc(first.d.name)}</strong>. ${first.d.overdue
-        ? (best ? `Ela tem proposta de <strong>${offerPct(best)}% de desconto</strong>: pague ${money(best.value)} em vez de ${money(best.remaining)}.` : 'Ela está em atraso. Procure uma proposta de desconto e cadastre em “💬 Proposta”.')
-        : strategy === 'interest' && first.d.rate ? `Tem os maiores juros (${rateText(first.d.rate)}).` : `É a menor dívida: acaba mais rápido e libera a parcela para a próxima.`}`
-        + (() => { const g = active.map((d) => ({ d, o: bestOffer(d) })).filter((x) => x.o && x.d !== first.d && offerPct(x.o) >= 30).sort((x, y) => offerPct(y.o) - offerPct(x.o))[0]; return g ? ` Mas se você tiver dinheiro à vista, <strong>${esc(g.d.name)}</strong> tem proposta de ${offerPct(g.o)}% de desconto (${money(g.o.value)}): é onde cada real rende mais.` : ''; })()
-        + (parc.length && late.length ? ' Lembre: fatura de cartão e parcelas em andamento sempre ficam <strong>em dia</strong> primeiro.' : '');
-    }
-    if (named && !has(q, 'total')) {
-      const d = named; const o = bestOffer(d); const left = leftOf(d) * d.amount;
-      return d.overdue
-        ? `<strong>${esc(d.name)}</strong> está em atraso: <strong>${money(d.amount)}</strong> hoje.${o ? ` Melhor proposta: <strong>${money(o.value)}</strong> (${offerPct(o)}% de desconto).` : ' Ainda não há proposta cadastrada.'}`
-        : `<strong>${esc(d.name)}</strong>: faltam <strong>${leftOf(d)}</strong> de ${d.total} parcelas de ${money(d.amount)}, total de ${money(left)}. Próxima em ${esc(shortDate(d.nextDue))}.${o ? ` Há proposta de quitação de ${money(o.value)} (${offerPct(o)}% de desconto).` : ''}`;
-    }
-    if (has(q, 'quanto devo', 'quanto falta', 'total', 'devo ao todo', 'quanto eu devo')) {
-      return `Faltam <strong>${money(total)}</strong> no total${late.length ? `, sendo <strong>${money(sum(late.map((d) => d.amount)))}</strong> em atraso (negativadas)` : ''}${parc.length ? `. As parcelas em andamento somam <strong>${money(sum(parc.map((d) => d.amount)))}</strong> por mês` : ''}.`;
-    }
-    if (has(q, 'quando', 'quanto tempo', 'livre', 'terminar', 'acabar', 'quitar tudo')) {
-      return plan.freeYM
-        ? `No ritmo atual${extra ? ` (${money(extra)} a mais por mês)` : ''} você fica livre em <strong>${esc(monthYear(plan.freeYM))}</strong>.${extra ? '' : ' Coloque quanto sobra no plano acima para ficar mais rápido.'}`
-        : 'Ainda não dá para prever. Informe quanto sobra por quinzena no “Plano para quitar”.';
-    }
-    if (has(q, 'proposta', 'oferta', 'desconto', 'negociar', 'vale a pena', 'acordo')) {
-      const offers = active.map((d) => ({ d, o: bestOffer(d) })).filter((x) => x.o).sort((x, y) => offerPct(y.o) - offerPct(x.o));
-      if (!offers.length) return 'Você não tem proposta cadastrada. Veja no <strong>Serasa</strong> ou no app do banco, e cadastre em “💬 Proposta” dentro da dívida. Dica: peça de novo depois de alguns dias, o desconto costuma subir.';
-      return `Suas propostas:<br>${offers.map((x) => `• <strong>${esc(x.d.name)}</strong>: ${money(x.o.value)} em vez de ${money(x.o.remaining)} (${offerPct(x.o)}% de desconto, ${esc(offerGrade(offerPct(x.o)).label)})`).join('<br>')}<br>Regra simples: <strong>30% ou mais</strong> costuma valer a pena se você tem o dinheiro à vista. Abaixo de 10%, tente negociar mais.`;
-    }
-    if (has(q, 'nome sujo', 'negativ', 'serasa', 'spc', 'score', 'limpar')) {
-      return `A negativação sai em até <strong>5 dias úteis</strong> depois do pagamento. A dívida não fica no cadastro para sempre: o prazo máximo é de <strong>5 anos</strong> contando do vencimento. Pague só por canais oficiais (Serasa, banco, empresa), confirme o CNPJ e guarde o comprovante. Você tem ${late.length} ${late.length === 1 ? 'dívida' : 'dívidas'} em atraso no app.`;
-    }
-    if (has(q, 'juros', 'rotativo', 'cartao', 'fatura')) {
-      return 'O <strong>rotativo do cartão</strong> é um dos juros mais altos do país. Pague a fatura <strong>inteira</strong> e nunca só o mínimo. Se não conseguir, procure parcelar a fatura com o banco: costuma ser bem mais barato que o rotativo.';
-    }
-    if (has(q, 'parcela', 'por mes', 'mensal')) {
-      return parc.length
-        ? `Você paga <strong>${money(sum(parc.map((d) => d.amount)))}</strong> por mês em parcelas:<br>${parc.map((d) => `• ${esc(d.name)}: ${money(d.amount)} (faltam ${leftOf(d)})`).join('<br>')}`
-        : 'Você não tem parcelas mensais em andamento, só dívidas em atraso.';
-    }
-    if (has(q, 'reserva', 'guardar', 'economizar', 'investir', 'poupar')) {
-      return 'Enquanto quita, guarde uma reserva mínima de <strong>R$ 200 a R$ 500</strong> (Metas → Reserva de emergência). Depois de quitar tudo, mande o mesmo valor das parcelas todo mês para <strong>Tesouro Selic</strong> ou <strong>CDB com liquidez diária</strong>. O app simula quanto você junta, em Metas.';
-    }
-    if (has(q, 'oi', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'ajuda')) {
-      return 'Oi! Posso responder sobre o que falta pagar, por onde começar, propostas, quando você fica livre e “e se eu pagar R$ 200 a mais”.';
-    }
-    return 'Não entendi bem 😅. Tente algo como: “por onde começar?”, “quanto eu devo?”, “quando fico livre?”, “vale a pena a proposta?” ou “e se eu pagar 200 a mais?”. Pode citar o nome da dívida também.';
-  }
-
-  function openAdvisorSheet() {
-    const chips = ['Por onde começar?', 'Quanto eu devo?', 'Quando fico livre?', 'Vale a pena a proposta?', 'E se eu pagar 200 a mais?'];
-    const root = openSheet(`<h2 class="sheet-title" id="sheetTitle">💬 Pergunte sobre suas dívidas</h2>
-      <div class="chat-log" id="chatLog" aria-live="polite"><div class="bubble bot">Oi, Jeferson! Pergunte o que quiser sobre as suas dívidas. Respondo com os números do seu app, e nada sai do seu celular.</div></div>
-      <div class="chips" id="chatChips">${chips.map((c) => `<button class="chip" type="button">${esc(c)}</button>`).join('')}</div>
-      <form class="chat-form" id="chatForm" autocomplete="off">
-        <input id="chatInput" type="text" enterkeyhint="send" placeholder="Digite sua pergunta" aria-label="Pergunta">
-        <button class="btn primary" type="submit">Enviar</button>
-      </form>`);
-    const log = $('#chatLog', root);
-    const ask = (text) => {
-      const t = text.trim();
-      if (!t) return;
-      log.insertAdjacentHTML('beforeend', `<div class="bubble me">${esc(t)}</div><div class="bubble bot">${answerDebts(t)}</div>`);
-      log.scrollTop = log.scrollHeight;
-    };
-    $('#chatChips', root).addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) ask(b.textContent); });
-    $('#chatForm', root).addEventListener('submit', (e) => {
-      e.preventDefault();
-      const input = $('#chatInput', root);
-      ask(input.value);
-      input.value = '';
-    });
-  }
-
   // ----- Propostas de quitação -----
 
   // Desconto arredondado para baixo, como o Serasa mostra: nunca promete mais do que existe.
@@ -2323,8 +2218,7 @@
         </section>`
       : `<section class="card tip"><div class="tip-icon" aria-hidden="true">🎉</div><div>
           <p><strong>Parabéns! Todas as dívidas estão quitadas.</strong> Que tal usar o valor das parcelas para guardar dinheiro numa meta?</p></div></section>`;
-    const ask = `<button class="btn block ask-ai" type="button" data-action="ask-ai">💬 Falar com a IA sobre minhas dívidas</button>`;
-    return `${demoBanner()}${help}${summary}${ask}${active.length ? planCard(active) : ''}${sorted.map(debtCard).join('')}
+    return `${demoBanner()}${help}${summary}${active.length ? planCard(active) : ''}${sorted.map(debtCard).join('')}
       <button class="btn block" type="button" data-action="new-debt">+ Cadastrar dívida</button>`;
   }
 
@@ -4484,8 +4378,6 @@
       openBillsSheet();
     } else if (action === 'bills-calendar') {
       exportBillsCalendar();
-    } else if (action === 'ask-ai') {
-      openAdvisorSheet();
     } else if (action === 'setup-code') {
       openSetupSheet();
     } else if (action === 'salary') {
@@ -4582,7 +4474,7 @@
   document.addEventListener('touchmove', (e) => {
     if (!e.cancelable) return;
     if (e.touches.length > 1) { e.preventDefault(); return; }
-    const sc = e.target.closest ? e.target.closest('.chat-log, .view, .sheet, textarea, .lock-inner, .lock') : null;
+    const sc = e.target.closest ? e.target.closest('.view, .sheet, textarea, .lock-inner, .lock') : null;
     if (!sc) { e.preventDefault(); return; }
     const dy = e.touches[0].clientY - touchY;
     const atTop = sc.scrollTop <= 0;
